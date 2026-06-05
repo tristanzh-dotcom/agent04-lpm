@@ -1,0 +1,145 @@
+<!DOCTYPE html><html lang="zh-CN"><head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>本地图像检索</title>
+    <meta name="agent04-api-base" content="http://127.0.0.1:8004">
+    <script>
+      try {
+        const parentTheme = window.parent?.document?.documentElement?.dataset?.webTheme;
+        const queryTheme = new URLSearchParams(window.location.search).get("webTheme");
+        const activeTheme = queryTheme || parentTheme || "";
+        if (activeTheme) document.documentElement.dataset.webTheme = activeTheme;
+      } catch {
+        const queryTheme = new URLSearchParams(window.location.search).get("webTheme");
+        if (queryTheme) document.documentElement.dataset.webTheme = queryTheme;
+      }
+    </script>
+    <link rel="stylesheet" href="/agent04-static/styles.css?v=20260529-light-tech-shell">
+  </head>
+  <body>
+    <main id="limb-workbench" class="limb-canvas" data-limb-app="">
+      <section class="limb-search-panel" data-panel="search">
+        <section class="limb-status" data-status hidden>等待输入搜索描述</section>
+        <section class="limb-masonry" data-results="" aria-live="polite"></section>
+      </section>
+
+      <section class="limb-register-panel" data-panel="register" hidden="">
+        <section class="limb-register-form-card">
+          <div class="limb-register-controls">
+            <h2 class="limb-register-title">新增人物</h2>
+            <div class="limb-face-input-row">
+              <label>
+                <span>人物昵称</span>
+                <input name="label" form="limb-face-form" type="text" autocomplete="off" maxlength="8" placeholder="例如：小菲" required="">
+              </label>
+              <button type="button" data-face-submit="">开始学习</button>
+            </div>
+            <section class="limb-face-feedback" data-face-status="">等待录入人物昵称</section>
+          </div>
+
+          <form class="limb-face-form" id="limb-face-form" data-face-form="" novalidate="">
+            <label class="limb-dropzone" data-dropzone="">
+              <input name="files" type="file" accept="image/*" multiple="" required="" hidden="">
+              <div class="limb-photo-slots" data-photo-slots="" aria-label="人脸样张槽位"></div>
+            </label>
+          </form>
+        </section>
+
+        <div class="limb-profile-board">
+          <div class="limb-filter-title">
+            <span>人物库管理</span>
+            <div class="limb-profile-tools">
+              <button type="button" data-refresh-profiles="">刷新</button>
+              <button type="button" data-face-reindex="">补扫相册人脸索引</button>
+            </div>
+          </div>
+          <div class="limb-profile-list" data-profile-list=""></div>
+        </div>
+      </section>
+
+      <dialog class="limb-confirm-dialog" data-profile-confirm="" aria-labelledby="limb-profile-confirm-title">
+        <form method="dialog">
+          <strong id="limb-profile-confirm-title">删除人物</strong>
+          <p><span data-profile-confirm-label=""></span></p>
+          <div class="limb-confirm-actions">
+            <button type="button" data-profile-confirm-cancel="">取消</button>
+            <button class="is-danger" type="button" data-profile-confirm-accept="">确认删除</button>
+          </div>
+        </form>
+      </dialog>
+
+      <dialog class="limb-lightbox" data-lightbox="">
+        <div class="limb-lightbox-stage" data-lightbox-stage="">
+          <button class="limb-lightbox-nav limb-lightbox-nav-prev" type="button" data-lightbox-prev="" aria-label="上一张">‹</button>
+          <img alt="本地相册原图" data-lightbox-image="" data-open-native-image="">
+          <button class="limb-lightbox-nav limb-lightbox-nav-next" type="button" data-lightbox-next="" aria-label="下一张">›</button>
+          <p class="limb-lightbox-hint" data-lightbox-hint=""></p>
+          <section class="limb-similar-tray" data-similar-tray hidden="">
+            <div class="limb-similar-head">
+              <span>相似照片</span>
+              <button type="button" data-similar-clear="">收起</button>
+            </div>
+            <div class="limb-similar-strip" data-similar-strip=""></div>
+          </section>
+        </div>
+        <aside class="limb-inspector">
+          <div class="limb-inspector-head">
+            <strong class="limb-inspector-title">照片信息</strong>
+            <div class="limb-inspector-quick-actions">
+              <!-- 相似照片功能保留，当前按产品决策隐藏入口；恢复时移除 hidden 即可。 -->
+              <button type="button" data-similar-button="" hidden="">寻找相似</button>
+              <button type="button" data-copy-path="">复制本地路径</button>
+              <button class="limb-lightbox-back" type="button" data-lightbox-back="" data-lightbox-close="" aria-label="返回结果列表">← 返回</button>
+            </div>
+          </div>
+          <p data-inspector-description=""></p>
+
+          <div class="limb-inspector-block">
+            <h3>身份</h3>
+            <div class="limb-inspector-identity" data-inspector-identity="">未命中人物身份</div>
+          </div>
+
+          <div class="limb-inspector-block">
+            <h3>拍摄信息</h3>
+            <div class="limb-inspector-capture" data-inspector-capture=""></div>
+          </div>
+
+          <details class="limb-advanced" data-advanced-panel="">
+            <summary data-advanced-toggle="">高级</summary>
+            <div class="limb-inspector-block">
+              <h3>标签</h3>
+              <div class="limb-inspector-tags" data-inspector-tags=""></div>
+            </div>
+            <div class="limb-inspector-actions">
+              <button type="button" data-edit-toggle="">修改描述</button>
+              <button class="is-danger" type="button" data-delete-button="">从检索库移除</button>
+            </div>
+
+            <form class="limb-edit-form" data-edit-form="" hidden="">
+              <label>
+                修改描述
+                <textarea name="description" rows="4"></textarea>
+              </label>
+              <label>
+                标签，使用逗号分隔
+                <input name="tags" type="text">
+              </label>
+              <div class="limb-inspector-actions">
+                <button type="submit">保存修正</button>
+                <button type="button" data-edit-cancel="">取消</button>
+              </div>
+            </form>
+          </details>
+
+          <div class="limb-path-buffer" aria-hidden="true">
+            <code data-inspector-path=""></code>
+          </div>
+        </aside>
+      </dialog>
+    
+</main>
+
+    <script src="/agent04-static/app.js?v=20260602-preview-url"></script>
+  
+
+</body></html>

@@ -1,0 +1,315 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>本地图像检索 标记入库</title>
+  <style>
+    :root {
+      --ink: #141412;
+      --muted: #69645b;
+      --paper: #f7f2e8;
+      --panel: #fffaf0;
+      --line: #d7cdbb;
+      --accent: #1f6f68;
+      --accent-strong: #134b47;
+      --ok: #22714a;
+      --bad: #b24234;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      min-height: 100vh;
+      margin: 0;
+      background:
+        linear-gradient(90deg, rgba(31, 111, 104, 0.11) 1px, transparent 1px),
+        linear-gradient(#eee3d1, #faf6ee 38%, #e8ddca);
+      background-size: 34px 34px, auto;
+      color: var(--ink);
+      font-family: "Avenir Next", "PingFang SC", "Hiragino Sans GB", sans-serif;
+      letter-spacing: 0;
+    }
+
+    main {
+      width: min(940px, calc(100% - 2rem));
+      margin: 0 auto;
+      padding: clamp(1.5rem, 5vw, 4rem) 0;
+    }
+
+    header {
+      display: flex;
+      gap: 1rem;
+      align-items: end;
+      justify-content: space-between;
+      margin-bottom: 1.2rem;
+    }
+
+    h1 {
+      margin: 0;
+      font-size: clamp(2.2rem, 7vw, 5rem);
+      line-height: 0.95;
+      font-weight: 850;
+    }
+
+    a {
+      color: var(--accent-strong);
+      text-decoration: none;
+      border-bottom: 1px solid currentColor;
+    }
+
+    .workbench {
+      display: grid;
+      gap: 1rem;
+      padding: clamp(1rem, 3vw, 1.5rem);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: rgba(255, 250, 240, 0.88);
+      box-shadow: 0 24px 70px rgba(70, 55, 32, 0.16);
+    }
+
+    label {
+      display: grid;
+      gap: 0.45rem;
+      color: var(--muted);
+      font-size: 0.92rem;
+      font-weight: 700;
+    }
+
+    input[type="text"] {
+      width: 100%;
+      height: 3.15rem;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 0 1rem;
+      background: #fffdf8;
+      color: var(--ink);
+      font: inherit;
+      font-size: 1.1rem;
+      outline: none;
+    }
+
+    input[type="text"]:focus {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px rgba(31, 111, 104, 0.13);
+    }
+
+    .dropzone {
+      display: grid;
+      place-items: center;
+      min-height: 13rem;
+      border: 1px dashed #9c8f7c;
+      border-radius: 8px;
+      background: rgba(255, 253, 248, 0.78);
+      color: var(--muted);
+      text-align: center;
+      cursor: pointer;
+      transition: border-color 160ms ease, background 160ms ease, transform 160ms ease;
+    }
+
+    .dropzone strong {
+      display: block;
+      margin-bottom: 0.35rem;
+      color: var(--ink);
+      font-size: 1.1rem;
+    }
+
+    .dropzone.is-dragging {
+      border-color: var(--accent);
+      background: rgba(31, 111, 104, 0.09);
+      transform: translateY(-1px);
+    }
+
+    .file-list {
+      display: grid;
+      gap: 0.45rem;
+      margin: 0;
+      padding: 0;
+      list-style: none;
+      color: var(--muted);
+      font-size: 0.92rem;
+    }
+
+    .actions {
+      display: flex;
+      gap: 0.75rem;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+    }
+
+    button {
+      min-width: 12rem;
+      height: 3rem;
+      border: 0;
+      border-radius: 8px;
+      background: var(--accent);
+      color: #fff;
+      cursor: pointer;
+      font: inherit;
+      font-weight: 800;
+    }
+
+    button:disabled {
+      cursor: wait;
+      opacity: 0.65;
+    }
+
+    .status {
+      min-height: 1.5rem;
+      margin: 0;
+      color: var(--muted);
+      font-weight: 700;
+    }
+
+    .status.ok {
+      color: var(--ok);
+    }
+
+    .status.bad {
+      color: var(--bad);
+    }
+
+    @media (max-width: 680px) {
+      header,
+      .actions {
+        align-items: stretch;
+        flex-direction: column;
+      }
+
+      button {
+        width: 100%;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <header>
+      <h1>精确<br>锚定</h1>
+      <a href="./index.html">返回检索</a>
+    </header>
+
+    <form class="workbench" id="registerForm">
+      <label>
+        标签名
+        <input id="labelInput" name="label" type="text" autocomplete="off" placeholder="小菲 / 爸爸 / 卫士车">
+      </label>
+
+      <input id="fileInput" name="files" type="file" accept="image/*" multiple hidden>
+      <div class="dropzone" id="dropzone" tabindex="0" role="button" aria-label="选择或拖拽照片">
+        <div>
+          <strong>拖拽 3~5 张真实照片到这里</strong>
+          <span>也可以点击选择本地图片，系统会提取人脸向量并写入本地库。</span>
+        </div>
+      </div>
+
+      <ul class="file-list" id="fileList"></ul>
+
+      <div class="actions">
+        <button id="submitButton" type="submit">写入本地向量库</button>
+        <p class="status" id="statusText"></p>
+      </div>
+    </form>
+  </main>
+
+  <script>
+    const API_BASE = 'http://127.0.0.1:8000';
+    const form = document.querySelector('#registerForm');
+    const labelInput = document.querySelector('#labelInput');
+    const fileInput = document.querySelector('#fileInput');
+    const dropzone = document.querySelector('#dropzone');
+    const fileList = document.querySelector('#fileList');
+    const statusText = document.querySelector('#statusText');
+    const submitButton = document.querySelector('#submitButton');
+    let selectedFiles = [];
+
+    function renderFiles() {
+      fileList.replaceChildren();
+      selectedFiles.forEach((file) => {
+        const item = document.createElement('li');
+        item.textContent = `${file.name} · ${(file.size / 1024 / 1024).toFixed(2)} MB`;
+        fileList.appendChild(item);
+      });
+    }
+
+    function setStatus(message, type = '') {
+      statusText.className = `status ${type}`.trim();
+      statusText.textContent = message;
+    }
+
+    function setFiles(files) {
+      selectedFiles = Array.from(files).filter((file) => file.type.startsWith('image/')).slice(0, 5);
+      renderFiles();
+      if (selectedFiles.length > 0) {
+        setStatus(`已选择 ${selectedFiles.length} 张照片。`);
+      }
+    }
+
+    dropzone.addEventListener('click', () => fileInput.click());
+    dropzone.addEventListener('keydown', (event) => {
+      if (event.key === 'Enter' || event.key === ' ') {
+        event.preventDefault();
+        fileInput.click();
+      }
+    });
+
+    fileInput.addEventListener('change', () => setFiles(fileInput.files));
+
+    ['dragenter', 'dragover'].forEach((name) => {
+      dropzone.addEventListener(name, (event) => {
+        event.preventDefault();
+        dropzone.classList.add('is-dragging');
+      });
+    });
+
+    ['dragleave', 'drop'].forEach((name) => {
+      dropzone.addEventListener(name, (event) => {
+        event.preventDefault();
+        dropzone.classList.remove('is-dragging');
+      });
+    });
+
+    dropzone.addEventListener('drop', (event) => setFiles(event.dataTransfer.files));
+
+    form.addEventListener('submit', async (event) => {
+      event.preventDefault();
+      const label = labelInput.value.trim();
+      if (!label) {
+        setStatus('请先填写标签名。', 'bad');
+        labelInput.focus();
+        return;
+      }
+      if (selectedFiles.length < 1) {
+        setStatus('请至少选择一张真实照片。', 'bad');
+        return;
+      }
+
+      const body = new FormData();
+      body.append('label', label);
+      selectedFiles.forEach((file) => body.append('files', file));
+
+      submitButton.disabled = true;
+      setStatus('正在提取本地人脸向量...');
+      try {
+        const response = await fetch(`${API_BASE}/api/register_member`, {
+          method: 'POST',
+          body,
+        });
+        if (!response.ok) {
+          const detail = await response.text();
+          throw new Error(detail || `HTTP ${response.status}`);
+        }
+        await response.json();
+        setStatus(`成员：[${label}] 已成功精确锚定入库`, 'ok');
+      } catch (error) {
+        setStatus(`入库失败：${error.message}`, 'bad');
+      } finally {
+        submitButton.disabled = false;
+      }
+    });
+  </script>
+</body>
+</html>

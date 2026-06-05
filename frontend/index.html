@@ -1,0 +1,347 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>本地图像检索</title>
+  <link rel="preconnect" href="https://cdn.jsdelivr.net">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/swiper@11/swiper-bundle.min.css">
+  <style>
+    :root {
+      --ink: #f4f1ea;
+      --muted: #a7a095;
+      --panel: rgba(21, 22, 22, 0.78);
+      --line: rgba(244, 241, 234, 0.18);
+      --accent: #ffcf5a;
+      --danger: #ff796f;
+      --ground: #0b0d0e;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html,
+    body {
+      height: 100%;
+      margin: 0;
+      background:
+        radial-gradient(circle at 20% 10%, rgba(255, 207, 90, 0.13), transparent 24rem),
+        linear-gradient(135deg, #0b0d0e 0%, #171b1a 52%, #0b0d0e 100%);
+      color: var(--ink);
+      font-family: "Avenir Next", "PingFang SC", "Hiragino Sans GB", sans-serif;
+      letter-spacing: 0;
+      overflow: hidden;
+    }
+
+    body::after {
+      position: fixed;
+      inset: 0;
+      z-index: 0;
+      pointer-events: none;
+      content: "";
+      opacity: 0.22;
+      background-image:
+        linear-gradient(rgba(255, 255, 255, 0.035) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(255, 255, 255, 0.03) 1px, transparent 1px);
+      background-size: 42px 42px;
+      mask-image: linear-gradient(to bottom, transparent, black 16%, black 84%, transparent);
+    }
+
+    .app {
+      position: relative;
+      z-index: 1;
+      display: grid;
+      grid-template-rows: auto 1fr;
+      height: 100%;
+      min-height: 100%;
+    }
+
+    .topbar {
+      display: grid;
+      grid-template-columns: minmax(11rem, auto) minmax(14rem, 42rem) auto;
+      gap: 1rem;
+      align-items: center;
+      padding: 1rem clamp(1rem, 3vw, 2rem);
+      border-bottom: 1px solid var(--line);
+      background: rgba(8, 10, 10, 0.78);
+      backdrop-filter: blur(22px);
+    }
+
+    .brand {
+      min-width: 0;
+    }
+
+    .brand strong {
+      display: block;
+      font-size: 1.05rem;
+      font-weight: 700;
+    }
+
+    .brand span,
+    .status {
+      color: var(--muted);
+      font-size: 0.82rem;
+    }
+
+    .search {
+      position: relative;
+    }
+
+    .search input {
+      width: 100%;
+      height: 3rem;
+      padding: 0 3.2rem 0 1.05rem;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      outline: none;
+      background: rgba(244, 241, 234, 0.08);
+      color: var(--ink);
+      font: inherit;
+      box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.02);
+    }
+
+    .search input:focus {
+      border-color: rgba(255, 207, 90, 0.72);
+      box-shadow: 0 0 0 3px rgba(255, 207, 90, 0.12);
+    }
+
+    .search button {
+      position: absolute;
+      top: 0.42rem;
+      right: 0.42rem;
+      width: 2.15rem;
+      height: 2.15rem;
+      border: 0;
+      border-radius: 7px;
+      background: var(--accent);
+      color: #111;
+      cursor: pointer;
+      font-size: 1.1rem;
+      line-height: 1;
+    }
+
+    .admin-link {
+      justify-self: end;
+      color: var(--ink);
+      text-decoration: none;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 0.72rem 0.9rem;
+      background: rgba(244, 241, 234, 0.06);
+      font-size: 0.9rem;
+    }
+
+    .stage {
+      position: relative;
+      min-height: 0;
+    }
+
+    .empty {
+      position: absolute;
+      inset: 0;
+      z-index: 2;
+      display: grid;
+      place-items: center;
+      padding: 2rem;
+      text-align: center;
+      color: var(--muted);
+    }
+
+    .empty h1 {
+      margin: 0 0 0.7rem;
+      color: var(--ink);
+      font-size: clamp(2.2rem, 8vw, 6.8rem);
+      line-height: 0.92;
+      font-weight: 800;
+    }
+
+    .empty p {
+      max-width: 44rem;
+      margin: 0 auto;
+      font-size: clamp(1rem, 2vw, 1.18rem);
+      line-height: 1.8;
+    }
+
+    .swiper {
+      width: 100%;
+      height: 100%;
+    }
+
+    .swiper-slide {
+      display: grid;
+      place-items: center;
+      padding: clamp(0.8rem, 2vw, 2rem);
+    }
+
+    .swiper-slide img {
+      max-width: min(100%, 1280px);
+      max-height: calc(100vh - 7.5rem);
+      object-fit: contain;
+      border-radius: 8px;
+      border: 1px solid rgba(244, 241, 234, 0.16);
+      background: #070808;
+      box-shadow: 0 28px 80px rgba(0, 0, 0, 0.52);
+    }
+
+    .swiper-button-next,
+    .swiper-button-prev {
+      color: var(--accent);
+    }
+
+    .swiper-pagination-bullet {
+      background: var(--ink);
+      opacity: 0.36;
+    }
+
+    .swiper-pagination-bullet-active {
+      background: var(--accent);
+      opacity: 1;
+    }
+
+    .is-hidden {
+      display: none;
+    }
+
+    @media (max-width: 760px) {
+      body {
+        overflow: auto;
+      }
+
+      .app {
+        min-height: 100%;
+        height: auto;
+      }
+
+      .topbar {
+        grid-template-columns: 1fr;
+        align-items: stretch;
+      }
+
+      .admin-link {
+        justify-self: stretch;
+        text-align: center;
+      }
+
+      .stage {
+        min-height: 72vh;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main class="app">
+    <header class="topbar">
+      <div class="brand">
+        <strong>本地图像检索</strong>
+        <span>项目 4</span>
+      </div>
+
+      <form class="search" id="searchForm">
+        <input id="queryInput" type="search" autocomplete="off" placeholder="查找小菲、爸爸和卫士车同时出现的照片">
+        <button type="submit" title="搜索">⌕</button>
+      </form>
+
+      <a class="admin-link" href="./admin.html">标记入库</a>
+    </header>
+
+    <section class="stage">
+      <div class="empty" id="emptyState">
+        <div>
+          <h1>本地相册<br>语义召回</h1>
+          <p id="statusText">输入一句自然语言，系统会在本机索引中完成场景与人脸的双通道检索。</p>
+        </div>
+      </div>
+
+      <div class="swiper" id="photoSwiper">
+        <div class="swiper-wrapper" id="slides"></div>
+        <div class="swiper-pagination"></div>
+        <div class="swiper-button-prev"></div>
+        <div class="swiper-button-next"></div>
+      </div>
+    </section>
+  </main>
+
+  <script src="https://cdn.jsdelivr.net/npm/swiper@11/swiper-bundle.min.js"></script>
+  <script>
+    const API_BASE = 'http://127.0.0.1:8000';
+    const form = document.querySelector('#searchForm');
+    const input = document.querySelector('#queryInput');
+    const slides = document.querySelector('#slides');
+    const emptyState = document.querySelector('#emptyState');
+    const statusText = document.querySelector('#statusText');
+    let swiper = null;
+
+    function setStatus(message, keepHero = false) {
+      statusText.textContent = message;
+      emptyState.classList.toggle('is-hidden', !keepHero);
+    }
+
+    function rebuildSwiper(urls) {
+      if (swiper) {
+        swiper.destroy(true, true);
+        swiper = null;
+      }
+
+      slides.replaceChildren();
+      urls.forEach((url, index) => {
+        const slide = document.createElement('div');
+        slide.className = 'swiper-slide';
+        const image = document.createElement('img');
+        image.src = url;
+        image.alt = `本地图像检索召回照片 ${index + 1}`;
+        image.loading = index === 0 ? 'eager' : 'lazy';
+        slide.appendChild(image);
+        slides.appendChild(slide);
+      });
+
+      if (urls.length === 0) {
+        setStatus('没有找到符合条件的照片。', true);
+        return;
+      }
+
+      emptyState.classList.add('is-hidden');
+      swiper = new Swiper('#photoSwiper', {
+        loop: urls.length > 1,
+        speed: 520,
+        keyboard: { enabled: true },
+        pagination: { el: '.swiper-pagination', clickable: true },
+        navigation: { nextEl: '.swiper-button-next', prevEl: '.swiper-button-prev' },
+      });
+    }
+
+    async function searchPhotos(query) {
+      const response = await fetch(`${API_BASE}/api/search`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ query }),
+      });
+
+      if (!response.ok) {
+        const detail = await response.text();
+        throw new Error(detail || `HTTP ${response.status}`);
+      }
+
+      return response.json();
+    }
+
+    form.addEventListener('submit', async (event) => {
+      event.preventDefault();
+      const query = input.value.trim();
+      if (!query) {
+        setStatus('请输入要查找的照片线索。', true);
+        input.focus();
+        return;
+      }
+
+      setStatus('正在检索本地相册索引...', true);
+      try {
+        const urls = await searchPhotos(query);
+        rebuildSwiper(urls);
+      } catch (error) {
+        setStatus(`检索失败：${error.message}`, true);
+      }
+    });
+  </script>
+</body>
+</html>
