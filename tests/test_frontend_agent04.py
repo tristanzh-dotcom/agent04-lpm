@@ -14,6 +14,12 @@ def css_rule(styles, selector):
     return styles[start:end]
 
 
+def register_form_card_html(index_html):
+    start = index_html.index('<section class="limb-register-form-card"')
+    end = index_html.index("\n      </section>\n\n      <dialog", start)
+    return index_html[start:end]
+
+
 class Agent04FrontendTests(unittest.TestCase):
     def test_face_register_form_uses_explicit_named_item_lookup(self):
         app_js = (PROJECT_ROOT / "frontend" / "agent04" / "app.js").read_text(encoding="utf-8")
@@ -38,8 +44,10 @@ class Agent04FrontendTests(unittest.TestCase):
         self.assertIn("limb-profile-board", register_panel)
         self.assertIn("新增人物", register_panel)
         self.assertNotIn("入库状态", register_panel)
-        self.assertIn("人物库管理", register_panel)
+        self.assertIn("人物来源", register_panel)
         self.assertNotIn("搜索描述", register_panel)
+        self.assertLess(register_panel.index("limb-profile-board"), register_panel.index("limb-register-form-card"))
+        self.assertLess(register_panel.index("limb-profile-board"), register_panel.index("新增人物"))
         self.assertNotIn("data-face-reindex", register_panel[register_panel.index("limb-face-input-row"):register_panel.index("</form>")])
         self.assertIn("data-face-reindex", register_panel[register_panel.index("limb-profile-board"):])
         self.assertIn("grid-template-columns: minmax(0, 1fr);", styles)
@@ -63,7 +71,7 @@ class Agent04FrontendTests(unittest.TestCase):
         index_html = (PROJECT_ROOT / "frontend" / "agent04" / "index.html").read_text(encoding="utf-8")
         styles = (PROJECT_ROOT / "frontend" / "agent04" / "styles.css").read_text(encoding="utf-8")
         register_panel = index_html[index_html.index('<section class="limb-register-panel"') : index_html.index('<dialog class="limb-lightbox"')]
-        card = register_panel[register_panel.index('<section class="limb-register-form-card"') : register_panel.index('<div class="limb-profile-board"')]
+        card = register_form_card_html(index_html)
         controls = card[card.index('<div class="limb-register-controls"') :]
         form = register_panel[register_panel.index('<form class="limb-face-form"') : register_panel.index('</form>')]
 
@@ -123,7 +131,7 @@ class Agent04FrontendTests(unittest.TestCase):
     def test_register_card_uses_single_horizontal_strip_with_controls_next_to_photo_slots(self):
         index_html = (PROJECT_ROOT / "frontend" / "agent04" / "index.html").read_text(encoding="utf-8")
         styles = (PROJECT_ROOT / "frontend" / "agent04" / "styles.css").read_text(encoding="utf-8")
-        register_card = index_html[index_html.index('<section class="limb-register-form-card"') : index_html.index('<div class="limb-profile-board"')]
+        register_card = register_form_card_html(index_html)
         card_rule = css_rule(styles, ".limb-register-form-card")
         controls_rule = css_rule(styles, ".limb-register-controls")
         input_row_rule = css_rule(styles, ".limb-face-input-row")
@@ -167,7 +175,7 @@ class Agent04FrontendTests(unittest.TestCase):
     def test_face_learning_button_click_runs_js_validation_before_backend_request(self):
         index_html = (PROJECT_ROOT / "frontend" / "agent04" / "index.html").read_text(encoding="utf-8")
         app_js = (PROJECT_ROOT / "frontend" / "agent04" / "app.js").read_text(encoding="utf-8")
-        register_head = index_html[index_html.index('<section class="limb-register-form-card"') : index_html.index('<div class="limb-profile-board"')]
+        register_head = register_form_card_html(index_html)
         submit_fn = app_js[app_js.index("async function submitFaceProfile") : app_js.index("form?.addEventListener")]
         submit_listener = app_js[app_js.index('faceSubmitButton?.addEventListener("click"') : app_js.index('form?.addEventListener')]
         submit_button = register_head[register_head.index("<button") : register_head.index("</button>", register_head.index("data-face-submit"))]
@@ -251,7 +259,7 @@ class Agent04FrontendTests(unittest.TestCase):
         self.assertIn("/api/people/profiles", app_js)
         self.assertIn("apple_photos", app_js)
         self.assertIn("Apple Photos 只读继承", app_js)
-        self.assertIn("人物库分组", app_js)
+        self.assertIn("人物库管理", app_js)
         self.assertIn("data-profile-source", app_js)
 
     def test_profile_management_shows_loading_state_before_fetching_people(self):
@@ -285,15 +293,17 @@ class Agent04FrontendTests(unittest.TestCase):
         self.assertIn('kind.endsWith("_intersection_empty")', app_js)
         self.assertIn("场景条件未命中", app_js)
 
-    def test_profile_management_groups_manual_before_apple_photos_with_visual_cards(self):
+    def test_profile_management_groups_apple_photos_before_manual_with_visual_cards(self):
         app_js = (PROJECT_ROOT / "frontend" / "agent04" / "app.js").read_text(encoding="utf-8")
         styles = (PROJECT_ROOT / "frontend" / "agent04" / "styles.css").read_text(encoding="utf-8")
 
         self.assertIn("const manualProfiles", app_js)
         self.assertIn("const appleProfiles", app_js)
-        self.assertLess(app_js.index("manualProfiles"), app_js.index("appleProfiles"))
-        self.assertIn("人物库分组", app_js)
+        self.assertLess(app_js.index("appleProfiles"), app_js.index("manualProfiles"))
         self.assertIn("Apple Photos 只读继承", app_js)
+        self.assertIn("人物库管理", app_js)
+        profile_render = app_js[app_js.index("profileList.innerHTML = profiles.length") : app_js.index(": \"<p>还没有人物入库。</p>\"")]
+        self.assertLess(profile_render.index("Apple Photos 只读继承"), profile_render.index("人物库管理"))
         self.assertIn("renderProfileSection", app_js)
         self.assertIn("limb-profile-avatar", app_js)
         self.assertIn("profile.avatar_url", app_js)
@@ -535,7 +545,7 @@ class Agent04FrontendTests(unittest.TestCase):
         app_js = (PROJECT_ROOT / "frontend" / "agent04" / "app.js").read_text(encoding="utf-8")
 
         self.assertIn("<title>本地图像检索</title>", index_html)
-        self.assertIn("人物库分组", app_js)
+        self.assertIn("人物库管理", app_js)
         self.assertIn("确认从检索库移除？", app_js)
         self.assertNotIn("agent04 LIMB Ark 相册工作台", index_html)
         self.assertNotIn("LIMB 本地人物库", app_js)

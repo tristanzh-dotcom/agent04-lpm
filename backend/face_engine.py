@@ -96,19 +96,60 @@ class FaceVectorEngine:
         self._save_pickle(self.profiles_path, profiles)
         return self._profile_public(profiles[clean_label])
 
-    def scan_photo_directory(self, target_dir: str | os.PathLike[str]) -> dict[str, int]:
+    def scan_photo_directory(
+        self,
+        target_dir: str | os.PathLike[str],
+        *,
+        progress_callback: Callable[[dict[str, Any]], None] | None = None,
+        save_every: int = 100,
+    ) -> dict[str, int]:
         root = Path(target_dir).expanduser().resolve()
         if not root.exists() or not root.is_dir():
             raise FaceVectorError(f"相册目录不存在: {root}")
 
+        return self.scan_photo_paths(
+            self.iter_image_files(root),
+            progress_callback=progress_callback,
+            save_every=save_every,
+        )
+
+    def scan_photo_paths(
+        self,
+        image_paths: Iterable[str | os.PathLike[str]],
+        *,
+        progress_callback: Callable[[dict[str, Any]], None] | None = None,
+        save_every: int = 100,
+    ) -> dict[str, int]:
         index = self.load_photo_index()
         stats = {"indexed": 0, "skipped": 0, "failed": 0}
+        paths: list[Path] = []
 
-        for path in self.iter_image_files(root):
-            resolved = str(path.resolve())
+        seen_paths: set[str] = set()
+        for path_value in image_paths:
+            path = Path(path_value).expanduser().resolve()
+            resolved = str(path)
+            if resolved in seen_paths:
+                continue
+            seen_paths.add(resolved)
+            paths.append(path)
+
+        processed = 0
+        dirty_since_save = False
+        batch_size = max(1, int(save_every or 1))
+        total = len(paths)
+        for path in paths:
+            resolved = str(path)
+            processed += 1
+            if not path.exists() or not path.is_file():
+                stats["failed"] += 1
+                if progress_callback:
+                    progress_callback({**stats, "processed": processed, "total": total, "path": resolved})
+                continue
             modify_time = path.stat().st_mtime
             if resolved in index and float(index[resolved].get("modify_time", -1)) == float(modify_time):
                 stats["skipped"] += 1
+                if progress_callback:
+                    progress_callback({**stats, "processed": processed, "total": total, "path": resolved})
                 continue
             try:
                 faces = self.extract_faces(path)
@@ -124,11 +165,18 @@ class FaceVectorEngine:
                     ],
                 }
                 stats["indexed"] += 1
+                dirty_since_save = True
             except Exception as exc:
                 print(f"[LIMB-Face] 人脸索引失败 {path}: {exc}", flush=True)
                 stats["failed"] += 1
+            if dirty_since_save and processed % batch_size == 0:
+                self._save_pickle(self.photo_index_path, index)
+                dirty_since_save = False
+            if progress_callback:
+                progress_callback({**stats, "processed": processed, "total": total, "path": resolved})
 
-        self._save_pickle(self.photo_index_path, index)
+        if dirty_since_save:
+            self._save_pickle(self.photo_index_path, index)
         return stats
 
     def match_label(

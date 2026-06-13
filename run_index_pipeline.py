@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import os
+import sqlite3
 import tempfile
 import time
 from dataclasses import dataclass, field
@@ -171,7 +172,13 @@ class IndexPipeline:
         rows = self.location_metadata_provider() if self.location_metadata_provider else []
         if not rows:
             return 0
-        updated = self.database.backfill_location_display_names(rows)
+        try:
+            updated = self.database.backfill_location_display_names(rows)
+        except sqlite3.OperationalError as exc:
+            if "database is locked" not in str(exc).lower():
+                raise
+            print(f"[LIMB-Ark] Apple Photos 拍摄地点继承跳过: {exc}", flush=True)
+            return 0
         if updated:
             print(f"[LIMB-Ark] 已继承 Apple Photos 拍摄地点 {updated} 条。", flush=True)
         return updated

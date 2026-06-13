@@ -24,6 +24,17 @@
       </section>
 
       <section class="limb-register-panel" data-panel="register" hidden="">
+        <div class="limb-profile-board">
+          <div class="limb-filter-title">
+            <span>人物来源</span>
+            <div class="limb-profile-tools">
+              <button type="button" data-refresh-profiles="">刷新</button>
+              <button type="button" data-face-reindex="">补扫相册人脸索引</button>
+            </div>
+          </div>
+          <div class="limb-profile-list" data-profile-list=""></div>
+        </div>
+
         <section class="limb-register-form-card">
           <div class="limb-register-controls">
             <h2 class="limb-register-title">新增人物</h2>
@@ -44,17 +55,6 @@
             </label>
           </form>
         </section>
-
-        <div class="limb-profile-board">
-          <div class="limb-filter-title">
-            <span>人物库管理</span>
-            <div class="limb-profile-tools">
-              <button type="button" data-refresh-profiles="">刷新</button>
-              <button type="button" data-face-reindex="">补扫相册人脸索引</button>
-            </div>
-          </div>
-          <div class="limb-profile-list" data-profile-list=""></div>
-        </div>
       </section>
 
       <dialog class="limb-confirm-dialog" data-profile-confirm="" aria-labelledby="limb-profile-confirm-title">

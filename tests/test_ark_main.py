@@ -752,6 +752,141 @@ class ArkMainTests(unittest.TestCase):
             self.assertEqual(calls[0][0][2], str(originals.resolve()))
             self.assertEqual(payload["delta"]["missing_count"], 1)
 
+    def test_service_prunes_stale_only_delta_without_starting_pipeline(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            photo_root = root / "Photos Library.photoslibrary"
+            current_path = photo_root / "originals" / "A" / "current.jpg"
+            stale_path = photo_root / "originals" / "B" / "stale.jpg"
+            current_path.parent.mkdir(parents=True)
+            stale_path.parent.mkdir(parents=True)
+            current_path.write_bytes(b"current")
+            stale_path.write_bytes(b"stale")
+            db = ArkPhotoIndexDatabase(root / "limb_ark.sqlite3")
+            db.upsert_photo(
+                path=current_path,
+                md5="current-md5",
+                modify_time=current_path.stat().st_mtime,
+                description="当前照片",
+                tags=["当前"],
+                colors=["蓝色"],
+                asset_id="asset-current",
+                local_identifier="asset-current/L0/001",
+            )
+            db.upsert_photo(
+                path=stale_path,
+                md5="stale-md5",
+                modify_time=stale_path.stat().st_mtime,
+                description="旧照片",
+                tags=["旧照片"],
+                colors=["灰色"],
+                asset_id="asset-stale",
+                local_identifier="asset-stale/L0/001",
+            )
+            service = ArkSearchService(
+                db_path=root / "limb_ark.sqlite3",
+                photo_root=photo_root,
+                delta_job_path=root / "delta_update_job.json",
+                delta_log_path=root / "delta_update_job.log",
+                apple_people_bridge=None,
+                apple_people_cache=None,
+            )
+            service._apple_photo_assets_for_delta = lambda: [
+                {
+                    "source_path": str(current_path),
+                    "original_path": str(current_path),
+                    "asset_id": "asset-current",
+                    "local_identifier": "asset-current/L0/001",
+                }
+            ]
+
+            def fake_popen(*args, **kwargs):
+                raise AssertionError("stale-only delta should not start Ark pipeline")
+
+            payload = service.start_delta_update(popen=fake_popen, monitor_async=False)
+            job = service.delta_update_job_status()
+
+            self.assertEqual(payload["status"], "completed")
+            self.assertEqual(payload["reason"], "stale_pruned")
+            self.assertEqual(payload["summary"]["stale_removed"], 1)
+            self.assertEqual(payload["delta_after"]["stale_count"], 0)
+            self.assertFalse(payload["delta_after"]["has_delta"])
+            self.assertEqual(job["status"], "completed")
+            self.assertEqual(job["summary"]["stale_removed"], 1)
+            self.assertEqual(job["delta_after"]["stale_count"], 0)
+            self.assertEqual(service.search("旧照片", limit=10), [])
+
+    def test_service_prunes_stale_entries_after_successful_delta_pipeline(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            photo_root = root / "Photos Library.photoslibrary"
+            current_path = photo_root / "originals" / "A" / "current.jpg"
+            stale_path = photo_root / "originals" / "B" / "stale.jpg"
+            current_path.parent.mkdir(parents=True)
+            stale_path.parent.mkdir(parents=True)
+            current_path.write_bytes(b"current")
+            stale_path.write_bytes(b"stale")
+            db = ArkPhotoIndexDatabase(root / "limb_ark.sqlite3")
+            db.upsert_photo(
+                path=stale_path,
+                md5="stale-md5",
+                modify_time=stale_path.stat().st_mtime,
+                description="旧照片",
+                tags=["旧照片"],
+                colors=["灰色"],
+                asset_id="asset-stale",
+                local_identifier="asset-stale/L0/001",
+            )
+            service = ArkSearchService(
+                db_path=root / "limb_ark.sqlite3",
+                photo_root=photo_root,
+                delta_job_path=root / "delta_update_job.json",
+                delta_log_path=root / "delta_update_job.log",
+                apple_people_bridge=None,
+                apple_people_cache=None,
+            )
+            service._apple_photo_assets_for_delta = lambda: [
+                {
+                    "source_path": str(current_path),
+                    "original_path": str(current_path),
+                    "asset_id": "asset-current",
+                    "local_identifier": "asset-current/L0/001",
+                }
+            ]
+
+            def fake_popen(command, cwd, start_new_session, **kwargs):
+                kwargs["stdout"].write("本次新增成功打标图片数：1\n增量跳过图片数：0\n失败图片数：0\n")
+                kwargs["stdout"].flush()
+                service.database.upsert_photo(
+                    path=current_path,
+                    md5="current-md5",
+                    modify_time=current_path.stat().st_mtime,
+                    description="当前照片",
+                    tags=["当前"],
+                    colors=["蓝色"],
+                    asset_id="asset-current",
+                    local_identifier="asset-current/L0/001",
+                )
+
+                class FakeProcess:
+                    pid = 12345
+
+                    def wait(self):
+                        return 0
+
+                return FakeProcess()
+
+            service.start_delta_update(popen=fake_popen, monitor_async=False)
+            job = service.delta_update_job_status()
+
+            self.assertEqual(job["status"], "completed")
+            self.assertEqual(job["summary"]["indexed"], 1)
+            self.assertEqual(job["summary"]["stale_removed"], 1)
+            self.assertFalse(job["delta_after"]["has_delta"])
+            self.assertEqual(job["delta_after"]["stale_count"], 0)
+            self.assertEqual(job["message"], "相册同步完成")
+            self.assertEqual(service.search("旧照片", limit=10), [])
+
     def test_service_records_permission_blocked_delta_update_job(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)

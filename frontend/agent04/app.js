@@ -634,12 +634,12 @@
     profileList.innerHTML = "<p>人物库读取中...</p>";
     try {
       const profiles = await fetchJson(peopleProfilesApi);
-      const manualProfiles = profiles.filter((profile) => profile.source !== "apple_photos");
       const appleProfiles = profiles.filter((profile) => profile.source === "apple_photos");
+      const manualProfiles = profiles.filter((profile) => profile.source !== "apple_photos");
       profileList.innerHTML = profiles.length
         ? [
-            renderProfileSection("人物库分组", "可删除，优先用于昵称精确检索", manualProfiles),
             renderProfileSection("Apple Photos 只读继承", "来自 macOS 照片人物/宠物识别，不写回相册", appleProfiles),
+            renderProfileSection("人物库管理", "可删除，优先用于昵称精确检索", manualProfiles),
           ].join("")
         : "<p>还没有人物入库。</p>";
     } catch (error) {

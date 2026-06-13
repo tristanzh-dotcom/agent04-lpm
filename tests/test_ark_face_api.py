@@ -14,6 +14,7 @@ class FakeFaceEngine:
     def __init__(self):
         self.registered = []
         self.scanned_root = None
+        self.scanned_paths = None
         self.indexed_paths = []
         self.profiles = [{"label": "小菲", "sample_count": 3, "updated_at": "2026-05-22T00:00:00+0800"}]
 
@@ -24,9 +25,28 @@ class FakeFaceEngine:
     def list_profiles(self):
         return self.profiles
 
-    def scan_photo_directory(self, photo_root):
+    def scan_photo_directory(self, photo_root, **kwargs):
         self.scanned_root = str(photo_root)
+        progress_callback = kwargs.get("progress_callback")
+        if progress_callback:
+            progress_callback({"processed": 1, "total": 1, "indexed": 2, "skipped": 1, "failed": 0})
         return {"indexed": 2, "skipped": 1, "failed": 0}
+
+    def scan_photo_paths(self, paths, **kwargs):
+        self.scanned_paths = [str(Path(path).resolve()) for path in paths]
+        progress_callback = kwargs.get("progress_callback")
+        if progress_callback:
+            for index, _ in enumerate(self.scanned_paths, start=1):
+                progress_callback(
+                    {
+                        "processed": index,
+                        "total": len(self.scanned_paths),
+                        "indexed": index,
+                        "skipped": 0,
+                        "failed": 0,
+                    }
+                )
+        return {"indexed": len(self.scanned_paths), "skipped": 0, "failed": 0}
 
     def delete_profile(self, label):
         self.profiles = [profile for profile in self.profiles if profile["label"] != label]
@@ -72,6 +92,14 @@ class DeniedApplePeopleBridge:
         raise PermissionError("authorization denied")
 
 
+class FakeAppleAssetCache:
+    def __init__(self, assets):
+        self.assets = assets
+
+    def iter_image_asset_resources(self):
+        return list(self.assets)
+
+
 class ArkFaceApiTests(unittest.TestCase):
     def test_face_register_route_accepts_label_and_three_files(self):
         fake = FakeFaceEngine()
@@ -93,8 +121,25 @@ class ArkFaceApiTests(unittest.TestCase):
         self.assertEqual(fake.registered[0][0], "小菲")
 
     def test_face_profiles_and_reindex_routes_use_face_engine(self):
+        class FakeService:
+            def __init__(self):
+                self.requested_photo_root = None
+                self.requested_face_engine = None
+
+            def start_face_reindex(self, *, photo_root=None, face_engine=None, **kwargs):
+                self.requested_photo_root = photo_root
+                self.requested_face_engine = face_engine
+                return {
+                    "status": "started",
+                    "source": "filesystem",
+                    "total": 0,
+                    "processed": 0,
+                    "summary": {"indexed": 0, "skipped": 0, "failed": 0},
+                }
+
         fake = FakeFaceEngine()
-        with patch("backend.ark_main.face_engine", fake):
+        fake_service = FakeService()
+        with patch("backend.ark_main.face_engine", fake), patch("backend.ark_main.service", fake_service):
             client = TestClient(ark_main.app)
 
             profiles_response = client.get("/api/face/profiles")
@@ -102,8 +147,84 @@ class ArkFaceApiTests(unittest.TestCase):
 
         self.assertEqual(profiles_response.status_code, 200)
         self.assertEqual(profiles_response.json()[0]["label"], "小菲")
-        self.assertEqual(reindex_response.json()["indexed"], 2)
-        self.assertEqual(fake.scanned_root, "/tmp/photos")
+        self.assertEqual(reindex_response.status_code, 200)
+        self.assertEqual(reindex_response.json()["status"], "started")
+        self.assertEqual(reindex_response.json()["source"], "filesystem")
+        self.assertEqual(fake_service.requested_photo_root, "/tmp/photos")
+        self.assertIs(fake_service.requested_face_engine, fake)
+
+    def test_face_reindex_job_status_route_reports_background_job(self):
+        class FakeService:
+            def start_face_reindex(self, **kwargs):
+                return {
+                    "status": "started",
+                    "source": "filesystem",
+                    "total": 2,
+                    "processed": 0,
+                    "summary": {"indexed": 0, "skipped": 0, "failed": 0},
+                }
+
+            def face_reindex_job_status(self):
+                return {
+                    "status": "running",
+                    "source": "filesystem",
+                    "total": 2,
+                    "processed": 1,
+                    "summary": {"indexed": 1, "skipped": 0, "failed": 0},
+                }
+
+        with patch("backend.ark_main.service", FakeService()):
+            client = TestClient(ark_main.app)
+
+            start_response = client.post("/api/face/reindex", json={"photo_root": "/tmp/photos"})
+            status_response = client.get("/api/face/reindex/job")
+
+        self.assertEqual(start_response.status_code, 200)
+        self.assertEqual(start_response.json()["status"], "started")
+        self.assertEqual(status_response.status_code, 200)
+        self.assertEqual(status_response.json()["status"], "running")
+        self.assertEqual(status_response.json()["processed"], 1)
+
+    def test_service_reindex_faces_prefers_apple_asset_source_paths(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            library = root / "Photos Library.photoslibrary"
+            original = library / "originals" / "A" / "asset.jpeg"
+            derivative = library / "resources" / "derivatives" / "A" / "asset_1_105_c.jpeg"
+            original.parent.mkdir(parents=True)
+            derivative.parent.mkdir(parents=True)
+            original.write_bytes(b"original")
+            derivative.write_bytes(b"derivative")
+            fake = FakeFaceEngine()
+            service = ArkSearchService(
+                db_path=root / "limb.sqlite3",
+                photo_root=library,
+                query_bridge=None,
+                face_engine=fake,
+                apple_people_bridge=None,
+                apple_people_cache=FakeAppleAssetCache(
+                    [
+                        {
+                            "source_path": str(derivative),
+                            "original_path": str(original),
+                            "asset_id": "asset-id",
+                            "local_identifier": "ASSET/L0/001",
+                            "source": "apple_photos",
+                            "source_kind": "derivative",
+                        }
+                    ]
+                ),
+            )
+
+            payload = service.start_face_reindex(monitor_async=False)
+
+            self.assertEqual(payload["status"], "completed")
+            self.assertEqual(payload["summary"]["indexed"], 1)
+            self.assertEqual(payload["processed"], 1)
+            self.assertEqual(payload["total"], 1)
+            self.assertEqual(fake.scanned_paths, [str(derivative.resolve())])
+            self.assertIsNone(fake.scanned_root)
+            self.assertEqual(payload["source"], "apple_photos_assets")
 
     def test_face_profile_delete_route_removes_named_profile(self):
         fake = FakeFaceEngine()

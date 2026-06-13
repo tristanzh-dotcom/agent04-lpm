@@ -1,4 +1,5 @@
 import asyncio
+import sqlite3
 import tempfile
 import unittest
 from pathlib import Path
@@ -92,6 +93,41 @@ class RunIndexPipelineTests(unittest.TestCase):
             rows = db.search("蓝天大海", limit=10)
 
             self.assertEqual(rows[0]["location_display_name"], "上海市 长宁区 虹桥南丰城")
+
+    def test_pipeline_skips_location_name_backfill_when_sqlite_is_locked(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            image_path = self.create_image(root / "a.jpg")
+            db = ArkPhotoIndexDatabase(root / "limb.sqlite3")
+            db.upsert_photo(
+                path=image_path,
+                md5="abc",
+                modify_time=1.0,
+                description="蓝天大海边的旅行照片",
+                tags=["蓝天", "大海", "旅行"],
+                colors=["蓝色"],
+            )
+
+            def locked_backfill(rows):
+                raise sqlite3.OperationalError("database is locked")
+
+            db.backfill_location_display_names = locked_backfill
+            pipeline = IndexPipeline(
+                photo_root=root,
+                database=db,
+                ark_client=FakeClient(),
+                thumbnail_dir=root / ".cache" / "thumbnails",
+                error_log=root / "errors.log",
+                concurrency=1,
+                show_progress=False,
+                location_metadata_provider=lambda: [
+                    {"original_path": image_path, "location_display_name": "上海市 长宁区 虹桥南丰城"}
+                ],
+            )
+
+            updated = pipeline._backfill_location_display_names()
+
+            self.assertEqual(updated, 0)
 
     def test_pipeline_logs_failures_and_continues(self):
         with tempfile.TemporaryDirectory() as temp_dir:

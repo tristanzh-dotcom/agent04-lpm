@@ -171,6 +171,15 @@ class ArkIndexEngineTests(unittest.TestCase):
             self.assertEqual(updated, 1)
             self.assertEqual(rows[0]["location_display_name"], "上海市 长宁区 虹桥南丰城")
 
+    def test_database_connections_wait_for_transient_sqlite_locks(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            db = ArkPhotoIndexDatabase(Path(temp_dir) / "limb_ark.sqlite3")
+
+            with db.connect() as connection:
+                busy_timeout = connection.execute("PRAGMA busy_timeout").fetchone()[0]
+
+            self.assertGreaterEqual(int(busy_timeout), 5000)
+
     def test_database_backfills_missing_capture_metadata_without_reindexing(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             db = ArkPhotoIndexDatabase(Path(temp_dir) / "limb_ark.sqlite3")

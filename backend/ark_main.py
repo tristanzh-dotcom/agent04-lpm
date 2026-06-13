@@ -200,6 +200,7 @@ class ArkSearchService:
         delta_job_path: str | os.PathLike[str] | None = None,
         delta_log_path: str | os.PathLike[str] | None = None,
         delta_error_log_path: str | os.PathLike[str] | None = None,
+        face_reindex_job_path: str | os.PathLike[str] | None = None,
     ) -> None:
         self.database = ArkPhotoIndexDatabase(db_path or os.environ.get("LIMB_ARK_DB", "data/limb_ark.sqlite3"))
         configured_root = photo_root or os.environ.get("LIMB_PHOTO_ROOT") or os.environ.get("ARK_PHOTO_ROOT")
@@ -230,6 +231,10 @@ class ArkSearchService:
         self.delta_error_log_path = Path(
             delta_error_log_path or self.database.db_path.parent / "indexing_errors.log"
         )
+        self.face_reindex_job_path = Path(
+            face_reindex_job_path or self.database.db_path.parent / "face_reindex_job.json"
+        )
+        self._face_reindex_lock = threading.Lock()
 
     def _default_query_bridge(self) -> DeepSeekQueryBridge | None:
         if not os.environ.get("DEEPSEEK_API_KEY"):
@@ -326,6 +331,188 @@ class ArkSearchService:
             except Exception as exc:
                 print(f"[LIMB-Ark] LIMB 人物向量库读取失败: {exc}", flush=True)
         return profiles
+
+    def reindex_faces(
+        self,
+        *,
+        photo_root: str | os.PathLike[str] | None = None,
+        face_engine: Any | None = None,
+    ) -> dict[str, Any]:
+        engine = face_engine or self.face_engine
+        if engine is None:
+            raise FaceVectorError("LIMB 人物向量库未启用。")
+
+        target_root = photo_root or os.environ.get("LIMB_PHOTO_ROOT") or os.environ.get("ARK_PHOTO_ROOT")
+        if photo_root is None:
+            apple_assets = self._apple_photo_assets_for_delta()
+            source_paths: list[Path] = []
+            if apple_assets:
+                for asset in apple_assets:
+                    source_path = asset.get("source_path") or asset.get("original_path")
+                    if source_path:
+                        source_paths.append(Path(source_path).expanduser().resolve())
+                if source_paths:
+                    payload = engine.scan_photo_paths(source_paths)
+                    return {**payload, "source": "apple_photos_assets"}
+
+        if not target_root:
+            raise FaceVectorError("缺少 photo_root 或 LIMB_PHOTO_ROOT 环境变量。")
+        payload = engine.scan_photo_directory(target_root)
+        return {**payload, "source": "filesystem"}
+
+    def face_reindex_job_status(self) -> dict[str, Any]:
+        if not self.face_reindex_job_path.exists():
+            return {"status": "idle"}
+        try:
+            payload = json.loads(self.face_reindex_job_path.read_text(encoding="utf-8"))
+        except Exception as exc:
+            return {"status": "unknown", "message": f"人脸补扫状态读取失败: {exc}"}
+        status = str(payload.get("status") or "")
+        pid = payload.get("pid")
+        if status in {"started", "running"} and pid is not None:
+            try:
+                if int(pid) != os.getpid():
+                    return {
+                        **payload,
+                        "status": "interrupted",
+                        "message": "上一次人脸补扫进程已重启或退出，请重新点击补扫。",
+                    }
+            except (TypeError, ValueError):
+                pass
+        return payload
+
+    def _write_face_reindex_job(self, payload: dict[str, Any]) -> None:
+        self.face_reindex_job_path.parent.mkdir(parents=True, exist_ok=True)
+        temporary_path = self.face_reindex_job_path.with_suffix(f"{self.face_reindex_job_path.suffix}.tmp")
+        temporary_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+        temporary_path.replace(self.face_reindex_job_path)
+
+    def _face_reindex_source(
+        self,
+        *,
+        photo_root: str | os.PathLike[str] | None,
+    ) -> dict[str, Any]:
+        target_root = photo_root or os.environ.get("LIMB_PHOTO_ROOT") or os.environ.get("ARK_PHOTO_ROOT")
+        if photo_root is None:
+            apple_assets = self._apple_photo_assets_for_delta()
+            source_paths: list[Path] = []
+            if apple_assets:
+                for asset in apple_assets:
+                    source_path = asset.get("source_path") or asset.get("original_path")
+                    if source_path:
+                        source_paths.append(Path(source_path).expanduser().resolve())
+                if source_paths:
+                    return {
+                        "source": "apple_photos_assets",
+                        "paths": source_paths,
+                        "root": None,
+                    }
+        if not target_root:
+            raise FaceVectorError("缺少 photo_root 或 LIMB_PHOTO_ROOT 环境变量。")
+        return {
+            "source": "filesystem",
+            "paths": None,
+            "root": str(Path(target_root).expanduser().resolve()),
+        }
+
+    def start_face_reindex(
+        self,
+        *,
+        photo_root: str | os.PathLike[str] | None = None,
+        face_engine: Any | None = None,
+        monitor_async: bool = True,
+    ) -> dict[str, Any]:
+        engine = face_engine or self.face_engine
+        if engine is None:
+            raise FaceVectorError("LIMB 人物向量库未启用。")
+
+        with self._face_reindex_lock:
+            existing = self.face_reindex_job_status()
+            if existing.get("status") in {"started", "running"}:
+                return existing
+
+            source_payload = self._face_reindex_source(photo_root=photo_root)
+            paths = source_payload["paths"]
+            total = len(paths) if paths is not None else 0
+            job = {
+                "status": "started",
+                "pid": os.getpid(),
+                "source": source_payload["source"],
+                "root": source_payload["root"],
+                "total": total,
+                "processed": 0,
+                "summary": {"indexed": 0, "skipped": 0, "failed": 0},
+                "started_at": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
+                "updated_at": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
+                "job_path": str(self.face_reindex_job_path),
+            }
+            self._write_face_reindex_job(job)
+
+        def update_progress(snapshot: dict[str, Any], *, force: bool = False) -> None:
+            processed = int(snapshot.get("processed") or 0)
+            if not force and processed % 10 != 0 and processed < int(snapshot.get("total") or 0):
+                return
+            progress_job = {
+                **job,
+                "status": "running",
+                "total": int(snapshot.get("total") or job.get("total") or 0),
+                "processed": processed,
+                "summary": {
+                    "indexed": int(snapshot.get("indexed") or 0),
+                    "skipped": int(snapshot.get("skipped") or 0),
+                    "failed": int(snapshot.get("failed") or 0),
+                },
+                "current_path": snapshot.get("path"),
+                "updated_at": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
+            }
+            self._write_face_reindex_job(progress_job)
+
+        def worker() -> None:
+            try:
+                running_job = {**job, "status": "running", "updated_at": time.strftime("%Y-%m-%dT%H:%M:%S%z")}
+                self._write_face_reindex_job(running_job)
+                if paths is not None:
+                    summary = engine.scan_photo_paths(paths, progress_callback=update_progress, save_every=100)
+                else:
+                    summary = engine.scan_photo_directory(
+                        source_payload["root"],
+                        progress_callback=update_progress,
+                        save_every=100,
+                    )
+                current_job = self.face_reindex_job_status()
+                final_total = int(current_job.get("total") or total)
+                final_processed = int(current_job.get("processed") or final_total)
+                finished_job = {
+                    **job,
+                    "status": "completed",
+                    "total": final_total,
+                    "processed": final_processed,
+                    "summary": {
+                        "indexed": int(summary.get("indexed") or 0),
+                        "skipped": int(summary.get("skipped") or 0),
+                        "failed": int(summary.get("failed") or 0),
+                    },
+                    "finished_at": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
+                    "updated_at": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
+                    "message": "人脸索引补扫完成",
+                }
+                self._write_face_reindex_job(finished_job)
+            except Exception as exc:
+                failed_job = {
+                    **job,
+                    "status": "failed",
+                    "message": str(exc),
+                    "finished_at": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
+                    "updated_at": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
+                }
+                self._write_face_reindex_job(failed_job)
+
+        if monitor_async:
+            thread = threading.Thread(target=worker, daemon=True)
+            thread.start()
+            return job
+        worker()
+        return self.face_reindex_job_status()
 
     def _search_with_face_profiles(self, query: str, *, limit: int) -> list[dict[str, Any]] | None:
         if self.face_engine is None:
@@ -1155,6 +1342,43 @@ class ArkSearchService:
             lines.append(line)
         return "\n".join(lines)
 
+    def _pipeline_delta_count(self, delta: dict[str, Any]) -> int:
+        return int(delta.get("missing_count") or 0) + int(delta.get("changed_count") or 0)
+
+    def _complete_stale_only_delta_update(self, delta: dict[str, Any]) -> dict[str, Any]:
+        started_at = time.strftime("%Y-%m-%dT%H:%M:%S%z")
+        prune_payload = self.prune_stale_index_entries()
+        delta_after = self.index_delta()
+        stale_removed = int(prune_payload.get("deleted_count") or 0)
+        remaining_count = (
+            int(delta_after.get("missing_count") or 0)
+            + int(delta_after.get("changed_count") or 0)
+            + int(delta_after.get("stale_count") or 0)
+        )
+        status = "completed" if not delta_after.get("has_delta") else "needs_attention"
+        message = (
+            "相册同步完成"
+            if status == "completed"
+            else f"已清理 {stale_removed} 条旧索引，仍有 {remaining_count} 张待更新。"
+        )
+        job = {
+            "status": status,
+            "reason": "stale_pruned",
+            "pid": None,
+            "delta": delta,
+            "started_at": started_at,
+            "finished_at": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
+            "summary": {"stale_removed": stale_removed},
+            "delta_after": delta_after,
+            "message": message,
+            "log_path": str(self.delta_log_path),
+            "error_log_path": str(self.delta_error_log_path),
+            "log_tail": "",
+            "error_log_tail": "",
+        }
+        self._write_delta_update_job(job)
+        return job
+
     def _finalize_delta_update_job(self, job: dict[str, Any], process: Any, log_file: Any | None = None) -> None:
         try:
             exit_code = int(process.wait())
@@ -1172,6 +1396,14 @@ class ArkSearchService:
         permission_error_count = len(self._permission_error_lines(log_text)) + len(
             self._permission_error_lines(current_error_log_text)
         )
+        summary = self._parse_delta_update_log_summary(log_text)
+        if exit_code == 0:
+            try:
+                prune_payload = self.prune_stale_index_entries()
+                summary["stale_removed"] = int(prune_payload.get("deleted_count") or 0)
+            except Exception as exc:
+                summary["stale_removed"] = 0
+                summary["stale_prune_error"] = str(exc)
         delta_after = self.index_delta()
         status = "completed" if exit_code == 0 else "failed"
         remaining_count = (
@@ -1196,7 +1428,7 @@ class ArkSearchService:
             "exit_code": exit_code,
             "finished_at": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
             "permission_error_count": permission_error_count,
-            "summary": self._parse_delta_update_log_summary(log_text),
+            "summary": summary,
             "delta_after": delta_after,
             "message": message,
             "log_path": str(self.delta_log_path),
@@ -1216,6 +1448,8 @@ class ArkSearchService:
         delta = self.index_delta()
         if not delta["has_delta"]:
             return {"status": "skipped", "reason": "no_delta", "delta": delta}
+        if self._pipeline_delta_count(delta) == 0 and int(delta.get("stale_count") or 0) > 0:
+            return self._complete_stale_only_delta_update(delta)
         scan_root = self._index_scan_root()
         if scan_root is None:
             raise FileNotFoundError("photo_root is not configured")
@@ -1289,9 +1523,11 @@ class ArkSearchService:
             print(f"[LIMB-Ark] 缩略图删除失败 {thumbnail}: {exc}", flush=True)
         return {"status": "deleted", "md5": deleted["md5"], "path": deleted["path"]}
 
-    def prune_stale_index_entries(self) -> dict[str, Any]:
-        indexed_rows = self.database.photo_fingerprints()
-        apple_assets = self._apple_photo_assets_for_delta()
+    def _stale_index_rows_from_apple_assets(
+        self,
+        indexed_rows: list[dict[str, Any]],
+        apple_assets: list[dict[str, Any]],
+    ) -> list[dict[str, Any]]:
         current_asset_ids = {str(asset.get("asset_id")) for asset in apple_assets if asset.get("asset_id")}
         current_local_identifiers = {
             str(asset.get("local_identifier")) for asset in apple_assets if asset.get("local_identifier")
@@ -1318,6 +1554,30 @@ class ArkSearchService:
             if row_paths & current_paths:
                 continue
             stale_rows.append(row)
+        return stale_rows
+
+    def _stale_index_rows_from_local_files(self, indexed_rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        local_paths = {str(path) for path in self._iter_local_photo_files()}
+        stale_rows: list[dict[str, Any]] = []
+        for row in indexed_rows:
+            candidates = [
+                str(Path(value).expanduser().resolve())
+                for value in (row.get("path"), row.get("original_path"))
+                if value
+            ]
+            if not candidates or not any(
+                candidate in local_paths or Path(candidate).exists() for candidate in candidates
+            ):
+                stale_rows.append(row)
+        return stale_rows
+
+    def prune_stale_index_entries(self) -> dict[str, Any]:
+        indexed_rows = self.database.photo_fingerprints()
+        apple_assets = self._apple_photo_assets_for_delta()
+        if apple_assets:
+            stale_rows = self._stale_index_rows_from_apple_assets(indexed_rows, apple_assets)
+        else:
+            stale_rows = self._stale_index_rows_from_local_files(indexed_rows)
 
         deleted: list[dict[str, Any]] = []
         for row in stale_rows:
@@ -1693,14 +1953,19 @@ def delete_face_profile(label: str) -> dict[str, Any]:
 
 
 @app.post("/api/face/reindex")
-def reindex_faces(request: FaceReindexRequest) -> dict[str, int]:
-    target_root = request.photo_root or os.environ.get("LIMB_PHOTO_ROOT") or os.environ.get("ARK_PHOTO_ROOT")
-    if not target_root:
-        raise HTTPException(status_code=400, detail="缺少 photo_root 或 LIMB_PHOTO_ROOT 环境变量。")
+def reindex_faces(request: FaceReindexRequest) -> dict[str, Any]:
     try:
-        return face_engine.scan_photo_directory(target_root)
+        return service.start_face_reindex(photo_root=request.photo_root, face_engine=face_engine)
     except FaceVectorError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@app.get("/api/face/reindex/job")
+def face_reindex_job_status() -> dict[str, Any]:
+    try:
+        return service.face_reindex_job_status()
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 

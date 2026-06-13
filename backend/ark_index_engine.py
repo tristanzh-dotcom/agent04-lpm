@@ -249,7 +249,8 @@ class ArkPhotoIndexDatabase:
         self._init_schema()
 
     def connect(self) -> sqlite3.Connection:
-        connection = sqlite3.connect(self.db_path)
+        connection = sqlite3.connect(self.db_path, timeout=10.0)
+        connection.execute("PRAGMA busy_timeout = 10000")
         connection.row_factory = sqlite3.Row
         connection.create_function("jieba_cut", 1, jieba_cut)
         return connection
