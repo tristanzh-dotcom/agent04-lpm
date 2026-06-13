@@ -261,6 +261,21 @@ class Agent04FrontendTests(unittest.TestCase):
         self.assertIn("人物库读取中", load_profiles)
         self.assertLess(load_profiles.index("人物库读取中"), load_profiles.index("await fetchJson(peopleProfilesApi)"))
 
+    def test_face_reindex_button_starts_background_job_and_polls_status(self):
+        app_js = (PROJECT_ROOT / "frontend" / "agent04" / "app.js").read_text(encoding="utf-8")
+        reindex_handler = app_js[
+            app_js.index('reindexButton?.addEventListener("click"') : app_js.index('resultsEl?.addEventListener("click"')
+        ]
+
+        self.assertIn("const faceReindexJobApi", app_js)
+        self.assertIn("/api/face/reindex/job", app_js)
+        self.assertIn("async function pollFaceReindexJob", app_js)
+        self.assertIn("formatFaceReindexJobStatus", app_js)
+        self.assertIn("await fetchJson(faceReindexApi", reindex_handler)
+        self.assertIn('payload.status === "started"', reindex_handler)
+        self.assertIn("await pollFaceReindexJob()", reindex_handler)
+        self.assertNotIn("payload.indexed", reindex_handler)
+
     def test_search_status_handles_all_semantic_intersection_diagnostics(self):
         app_js = (PROJECT_ROOT / "frontend" / "agent04" / "app.js").read_text(encoding="utf-8")
 
@@ -529,8 +544,8 @@ class Agent04FrontendTests(unittest.TestCase):
     def test_static_page_closes_agent04_app_script_tag(self):
         index_html = (PROJECT_ROOT / "frontend" / "agent04" / "index.html").read_text(encoding="utf-8")
 
-        self.assertIn('<script src="/agent04-static/app.js?v=20260602-preview-url"></script>', index_html)
-        self.assertNotIn('<script src="/agent04-static/app.js?v=20260602-preview-url">\n', index_html)
+        self.assertIn('<script src="/agent04-static/app.js?v=20260613-face-reindex-job"></script>', index_html)
+        self.assertNotIn('<script src="/agent04-static/app.js?v=20260613-face-reindex-job">\n', index_html)
 
     def test_new_search_resets_result_scroll_position(self):
         app_js = (PROJECT_ROOT / "frontend" / "agent04" / "app.js").read_text(encoding="utf-8")

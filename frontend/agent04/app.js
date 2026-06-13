@@ -10,6 +10,7 @@
   const faceProfilesApi = `${apiBase}/api/face/profiles`;
   const peopleProfilesApi = `${apiBase}/api/people/profiles`;
   const faceReindexApi = `${apiBase}/api/face/reindex`;
+  const faceReindexJobApi = `${apiBase}/api/face/reindex/job`;
 
   const form = root.querySelector("[data-search-form]");
   const panels = root.querySelectorAll("[data-panel]");
@@ -551,6 +552,36 @@
     if (faceStatus) faceStatus.textContent = text;
   }
 
+  function sleep(ms) {
+    return new Promise((resolve) => window.setTimeout(resolve, ms));
+  }
+
+  function formatFaceReindexJobStatus(job) {
+    const summary = job?.summary || {};
+    const indexed = Number(summary.indexed || 0);
+    const skipped = Number(summary.skipped || 0);
+    const failed = Number(summary.failed || 0);
+    if (job?.status === "completed") {
+      return `人脸索引完成：新增/更新 ${indexed}，跳过 ${skipped}，失败 ${failed}`;
+    }
+    if (job?.status === "failed" || job?.status === "interrupted") {
+      return job.message || "人脸补扫异常中断，请重新点击补扫";
+    }
+    const processed = Number(job?.processed || 0);
+    const total = Number(job?.total || 0);
+    const progress = total > 0 ? `${processed} / ${total}` : `${processed}`;
+    return `正在补扫相册人脸索引：${progress}，新增/更新 ${indexed}，跳过 ${skipped}，失败 ${failed}`;
+  }
+
+  async function pollFaceReindexJob() {
+    for (;;) {
+      const job = await fetchJson(faceReindexJobApi);
+      setFaceStatus(formatFaceReindexJobStatus(job));
+      if (!["started", "running"].includes(job.status)) return job;
+      await sleep(1200);
+    }
+  }
+
   function revokeFacePreviewUrls() {
     facePreviewUrls.forEach((url) => URL.revokeObjectURL(url));
     facePreviewUrls = [];
@@ -817,7 +848,11 @@
         headers: { "content-type": "application/json" },
         body: JSON.stringify({}),
       });
-      setFaceStatus(`人脸索引完成：新增/更新 ${payload.indexed}，跳过 ${payload.skipped}，失败 ${payload.failed}`);
+      if (payload.status === "started" || payload.status === "running") {
+        await pollFaceReindexJob();
+      } else {
+        setFaceStatus(formatFaceReindexJobStatus(payload));
+      }
     } catch (error) {
       setFaceStatus(error instanceof Error ? error.message : "人脸补扫失败");
     } finally {
