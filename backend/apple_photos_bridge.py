@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+import logging
 import os
 import plistlib
 import sqlite3
@@ -14,6 +15,7 @@ from datetime import datetime, timezone
 PathResolver = Callable[[str], Optional[Union[str, os.PathLike]]]
 OriginalRequester = Callable[[str], Union[Awaitable[str], str]]
 IMAGE_SUFFIXES = {".jpg", ".jpeg", ".png", ".bmp", ".webp", ".heic", ".heif", ".tif", ".tiff"}
+LOGGER = logging.getLogger(__name__)
 
 
 def stable_asset_id(local_identifier: str) -> str:
@@ -424,9 +426,21 @@ class PhotoKitOriginalPrefetcher:
                 }
                 continue
 
-            result = self.request_original(identifier)
-            if asyncio.iscoroutine(result):
-                result = await result
+            try:
+                result = self.request_original(identifier)
+                if asyncio.iscoroutine(result):
+                    result = await result
+            except Exception as exc:
+                error = str(exc)
+                state = "photokit-asset-missing-skip" if "PhotoKit 未找到资产" in error else "photokit-error-skip"
+                LOGGER.warning("PhotoKit original prefetch skipped for %s: %s", identifier, error)
+                states[identifier] = {
+                    "state": state,
+                    "original_path": str(path) if path else None,
+                    "asset_id": stable_asset_id(identifier),
+                    "error": error,
+                }
+                continue
             states[identifier] = {
                 "state": str(result or "photokit-requested"),
                 "original_path": str(path) if path else None,

@@ -118,6 +118,53 @@ class ArkIndexEngineTests(unittest.TestCase):
             self.assertEqual(rows[0]["md5"], "abc")
             self.assertIn("跳伞", rows[0]["tags"])
 
+    def test_database_search_falls_back_to_like_when_fts_query_is_invalid(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            db = ArkPhotoIndexDatabase(Path(temp_dir) / "limb_ark.sqlite3")
+            image_path = Path(temp_dir) / "quote.jpg"
+            self.create_image(image_path, size=(32, 32))
+            db.upsert_photo(
+                path=image_path,
+                md5="quote-md5",
+                modify_time=123.0,
+                description='小菲说 "test',
+                tags=["小菲"],
+                colors=["白色"],
+            )
+
+            rows = db.search('"test', limit=10)
+
+            self.assertEqual(len(rows), 1)
+            self.assertEqual(rows[0]["md5"], "quote-md5")
+
+    def test_database_search_escapes_like_wildcards_in_fallback(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            db = ArkPhotoIndexDatabase(Path(temp_dir) / "limb_ark.sqlite3")
+            percent_photo = Path(temp_dir) / "percent.jpg"
+            ordinary_photo = Path(temp_dir) / "ordinary.jpg"
+            self.create_image(percent_photo, size=(32, 32))
+            self.create_image(ordinary_photo, size=(32, 32))
+            db.upsert_photo(
+                path=percent_photo,
+                md5="percent-md5",
+                modify_time=1.0,
+                description="小菲拿着 100% 果汁",
+                tags=["小菲", "果汁"],
+                colors=["橙色"],
+            )
+            db.upsert_photo(
+                path=ordinary_photo,
+                md5="ordinary-md5",
+                modify_time=1.0,
+                description="老张在公园散步",
+                tags=["老张", "公园"],
+                colors=["绿色"],
+            )
+
+            rows = db.search("%", limit=10)
+
+            self.assertEqual([row["md5"] for row in rows], ["percent-md5"])
+
     def test_database_stores_capture_datetime_and_location_metadata(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             db = ArkPhotoIndexDatabase(Path(temp_dir) / "limb_ark.sqlite3")

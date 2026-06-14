@@ -1,11 +1,17 @@
 import json
+import asyncio
 import sqlite3
 import tempfile
 import unittest
 from pathlib import Path
 import plistlib
 
-from backend.apple_photos_bridge import ApplePhotosPeopleBridge, ApplePhotosPeopleCache, parse_reverse_location_blob
+from backend.apple_photos_bridge import (
+    ApplePhotosPeopleBridge,
+    ApplePhotosPeopleCache,
+    PhotoKitOriginalPrefetcher,
+    parse_reverse_location_blob,
+)
 
 
 def make_reverse_location_blob(*names: str) -> bytes:
@@ -130,6 +136,21 @@ class ApplePhotosPeopleBridgeTests(unittest.TestCase):
             self.assertEqual(people[0]["person_pk"], 1)
             self.assertEqual(people[0]["face_count"], 2)
             self.assertEqual(people[0]["asset_count"], 1)
+
+    def test_photokit_prefetch_skips_missing_asset_without_raising(self):
+        def request_original(identifier):
+            raise RuntimeError(f"PhotoKit 未找到资产: {identifier}")
+
+        prefetcher = PhotoKitOriginalPrefetcher(
+            path_resolver=lambda identifier: None,
+            request_original=request_original,
+        )
+
+        states = asyncio.run(prefetcher.prefetch_originals_if_needed(["LOCAL/404"]))
+
+        self.assertEqual(states["LOCAL/404"]["state"], "photokit-asset-missing-skip")
+        self.assertEqual(states["LOCAL/404"]["original_path"], None)
+        self.assertIn("PhotoKit 未找到资产: LOCAL/404", states["LOCAL/404"]["error"])
 
     def test_iter_person_asset_links_maps_to_original_path(self):
         with tempfile.TemporaryDirectory() as temp_dir:

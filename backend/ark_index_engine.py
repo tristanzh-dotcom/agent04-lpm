@@ -421,21 +421,24 @@ class ArkPhotoIndexDatabase:
             return []
 
         fts_query = self._build_fts_query(clean_query)
-        like_query = f"%{clean_query}%"
+        like_query = f"%{self._escape_like_query(clean_query)}%"
         with self.connect() as connection:
-            rows = connection.execute(
-                """
-                SELECT p.path, p.md5, p.description, p.tags_json, p.colors_json,
-                       p.asset_id, p.local_identifier, p.original_path, p.thumbnail_path, p.source,
-                       p.taken_at, p.latitude, p.longitude, p.location_text, p.location_display_name, p.metadata_source
-                FROM photos_fts f
-                JOIN photos p ON p.path = f.path
-                WHERE photos_fts MATCH ?
-                ORDER BY bm25(photos_fts)
-                LIMIT ?
-                """,
-                (fts_query, limit),
-            ).fetchall()
+            try:
+                rows = connection.execute(
+                    """
+                    SELECT p.path, p.md5, p.description, p.tags_json, p.colors_json,
+                           p.asset_id, p.local_identifier, p.original_path, p.thumbnail_path, p.source,
+                           p.taken_at, p.latitude, p.longitude, p.location_text, p.location_display_name, p.metadata_source
+                    FROM photos_fts f
+                    JOIN photos p ON p.path = f.path
+                    WHERE photos_fts MATCH ?
+                    ORDER BY bm25(photos_fts)
+                    LIMIT ?
+                    """,
+                    (fts_query, limit),
+                ).fetchall()
+            except sqlite3.OperationalError:
+                rows = []
             if not rows:
                 rows = connection.execute(
                     """
@@ -444,7 +447,7 @@ class ArkPhotoIndexDatabase:
                            p.taken_at, p.latitude, p.longitude, p.location_text, p.location_display_name, p.metadata_source
                     FROM photos p
                     JOIN photos_fts f ON p.path = f.path
-                    WHERE f.search_text LIKE ?
+                    WHERE f.search_text LIKE ? ESCAPE '\\'
                     LIMIT ?
                     """,
                     (like_query, limit),
@@ -471,6 +474,9 @@ class ArkPhotoIndexDatabase:
             }
             for row in rows
         ]
+
+    def _escape_like_query(self, query: str) -> str:
+        return query.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
 
     def count_photos(self) -> int:
         """返回当前已经落库的照片索引数量，用于健康检查和前端空库提示。"""

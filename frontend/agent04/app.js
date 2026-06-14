@@ -4,6 +4,7 @@
 
   const apiBase = document.querySelector('meta[name="agent04-api-base"]')?.content?.replace(/\/$/, "") ?? "http://127.0.0.1:8004";
   const searchApi = `${apiBase}/api/search`;
+  const searchResultLimit = 5000;
   const randomPhotosApi = `${apiBase}/api/photos/random`;
   const statusApi = `${apiBase}/api/index/status`;
   const faceRegisterApi = `${apiBase}/api/face/register`;
@@ -361,7 +362,7 @@
     const payload = await fetchJson(searchApi, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ query, limit: 160 }),
+      body: JSON.stringify({ query, limit: searchResultLimit }),
     });
     allResults = payload.map(normalizeResult);
     if (!allResults.length) {

@@ -53,6 +53,8 @@ load_local_runtime_config()
 
 
 DEFAULT_THUMBNAIL_DIR = os.path.expanduser("~/.cache/local-photo-model/thumbnails")
+DEFAULT_SEARCH_RESULT_LIMIT = 200
+PERSON_SEARCH_RESULT_LIMIT = 5000
 
 
 COARSE_LOCATION_BOUNDS: tuple[tuple[str, float, float, float, float], ...] = (
@@ -263,7 +265,7 @@ class ArkSearchService:
                     tokens.append(token)
         return tokens
 
-    def search(self, query: str, *, limit: int = 50) -> list[dict[str, Any]]:
+    def search(self, query: str, *, limit: int = 50, person_limit: int | None = None) -> list[dict[str, Any]]:
         self.last_search_diagnostic = {}
         missing_labels = self._missing_registered_face_labels(query)
         if missing_labels:
@@ -274,11 +276,11 @@ class ArkSearchService:
             }
             return []
 
-        face_rows = self._search_with_face_profiles(query, limit=limit)
+        face_rows = self._search_with_face_profiles(query, limit=limit, person_limit=person_limit)
         if face_rows is not None:
             return face_rows
 
-        apple_rows = self._search_with_apple_people(query, limit=limit)
+        apple_rows = self._search_with_apple_people(query, limit=limit, person_limit=person_limit)
         if apple_rows is not None:
             return apple_rows
 
@@ -371,7 +373,14 @@ class ArkSearchService:
         pid = payload.get("pid")
         if status in {"started", "running"} and pid is not None:
             try:
-                if int(pid) != os.getpid():
+                process_id = int(pid)
+                if not self._process_exists(process_id):
+                    return {
+                        **payload,
+                        "status": "interrupted",
+                        "message": "上一次人脸补扫进程已退出，请重新点击补扫。",
+                    }
+                if process_id != os.getpid():
                     return {
                         **payload,
                         "status": "interrupted",
@@ -380,6 +389,50 @@ class ArkSearchService:
             except (TypeError, ValueError):
                 pass
         return payload
+
+    def _process_exists(self, pid: int | None) -> bool:
+        try:
+            process_id = int(pid or 0)
+        except (TypeError, ValueError):
+            return False
+        if process_id <= 0:
+            return False
+        try:
+            os.kill(process_id, 0)
+            return True
+        except ProcessLookupError:
+            return False
+        except PermissionError:
+            return True
+        except OSError:
+            return False
+
+    def _process_parent_pid(self, pid: int | None) -> int | None:
+        try:
+            process_id = int(pid or 0)
+        except (TypeError, ValueError):
+            return None
+        if process_id <= 0:
+            return None
+        try:
+            result = subprocess.run(
+                ["ps", "-o", "ppid=", "-p", str(process_id)],
+                capture_output=True,
+                text=True,
+                timeout=2,
+                check=False,
+            )
+        except Exception:
+            return None
+        if result.returncode != 0:
+            return None
+        value = result.stdout.strip()
+        if not value:
+            return None
+        try:
+            return int(value.splitlines()[0].strip())
+        except (ValueError, IndexError):
+            return None
 
     def _write_face_reindex_job(self, payload: dict[str, Any]) -> None:
         self.face_reindex_job_path.parent.mkdir(parents=True, exist_ok=True)
@@ -514,20 +567,27 @@ class ArkSearchService:
         worker()
         return self.face_reindex_job_status()
 
-    def _search_with_face_profiles(self, query: str, *, limit: int) -> list[dict[str, Any]] | None:
+    def _search_with_face_profiles(
+        self,
+        query: str,
+        *,
+        limit: int,
+        person_limit: int | None = None,
+    ) -> list[dict[str, Any]] | None:
         if self.face_engine is None:
             return None
         labels = self.face_engine.known_labels_in_query(query)
         if not labels:
             return None
 
+        result_limit = max(1, int(person_limit if person_limit is not None else limit))
         semantic_query = self._strip_face_labels(query, labels)
         semantic_rows: list[dict[str, Any]] = []
         candidate_paths: list[str] | None = None
         semantic_miss = False
         if semantic_query:
             for search_query in self._search_query_candidates(semantic_query):
-                semantic_rows = self.database.search(search_query, limit=max(limit, 200))
+                semantic_rows = self.database.search(search_query, limit=max(result_limit, 200))
                 if semantic_rows:
                     break
             if semantic_rows:
@@ -537,7 +597,7 @@ class ArkSearchService:
 
         merged_matches: dict[str, dict[str, Any]] = {}
         for label in labels:
-            for match in self.face_engine.match_label(label, candidate_paths=candidate_paths, limit=max(limit, 200)):
+            for match in self.face_engine.match_label(label, candidate_paths=candidate_paths, limit=max(result_limit, 200)):
                 match_path = str(Path(match["path"]).expanduser().resolve())
                 current = merged_matches.setdefault(match_path, {"path": match_path, "face_score": 0.0, "matched_labels": []})
                 current["face_score"] = max(float(current["face_score"]), float(match.get("face_score", 0.0)))
@@ -546,7 +606,7 @@ class ArkSearchService:
 
         if not merged_matches:
             if semantic_rows:
-                fallback_matches = self._face_matches_for_labels(labels, candidate_paths=None, limit=max(limit, 200))
+                fallback_matches = self._face_matches_for_labels(labels, candidate_paths=None, limit=max(result_limit, 200))
                 if fallback_matches:
                     self.last_search_diagnostic = {
                         "kind": "semantic_face_intersection_empty",
@@ -559,7 +619,7 @@ class ArkSearchService:
                             "已降级返回人物照片，场景条件未命中。"
                         ),
                     }
-                    return self._format_face_match_rows(fallback_matches, semantic_miss=True, limit=limit)
+                    return self._format_face_match_rows(fallback_matches, semantic_miss=True, limit=result_limit)
                 self.last_search_diagnostic = {
                     "kind": "face_filter_empty",
                     "labels": labels,
@@ -584,20 +644,27 @@ class ArkSearchService:
                 ),
             }
 
-        return self._format_face_match_rows(merged_matches, semantic_miss=semantic_miss, limit=limit)
+        return self._format_face_match_rows(merged_matches, semantic_miss=semantic_miss, limit=result_limit)
 
-    def _search_with_apple_people(self, query: str, *, limit: int) -> list[dict[str, Any]] | None:
+    def _search_with_apple_people(
+        self,
+        query: str,
+        *,
+        limit: int,
+        person_limit: int | None = None,
+    ) -> list[dict[str, Any]] | None:
         labels = self._apple_people_labels_in_query(query)
         if not labels:
             return None
 
+        result_limit = max(1, int(person_limit if person_limit is not None else limit))
         semantic_query = self._strip_face_labels(query, labels)
         semantic_rows: list[dict[str, Any]] = []
         candidate_paths: set[str] | None = None
         semantic_miss = False
         if semantic_query:
             for search_query in self._search_query_candidates(semantic_query):
-                semantic_rows = self.database.search(search_query, limit=max(limit, 200))
+                semantic_rows = self.database.search(search_query, limit=max(result_limit, 200))
                 if semantic_rows:
                     break
             if semantic_rows:
@@ -672,8 +739,8 @@ class ArkSearchService:
                     identity_source="apple_photos",
                 )
             )
-        formatted.sort(key=lambda item: item.get("face_score", 0.0), reverse=True)
-        return formatted[:limit]
+        formatted.sort(key=self._person_timeline_sort_key, reverse=True)
+        return formatted[:result_limit]
 
     def _face_matches_for_labels(
         self,
@@ -711,7 +778,7 @@ class ArkSearchService:
                     semantic_miss=semantic_miss,
                 )
             )
-        formatted.sort(key=lambda item: item.get("face_score", 0.0), reverse=True)
+        formatted.sort(key=self._person_timeline_sort_key, reverse=True)
         return formatted[:limit]
 
     def _missing_registered_face_labels(self, query: str) -> list[str]:
@@ -728,6 +795,15 @@ class ArkSearchService:
             if label and label in text and label not in registered:
                 missing.append(label)
         return missing
+
+    def _person_timeline_sort_key(self, item: dict[str, Any]) -> tuple[int, str, float, str]:
+        taken_at = str(item.get("taken_at") or "")
+        return (
+            1 if taken_at else 0,
+            taken_at,
+            float(item.get("face_score") or 0.0),
+            str(item.get("md5") or item.get("path") or ""),
+        )
 
     def _apple_people_labels(self) -> set[str]:
         return {
@@ -1290,9 +1366,30 @@ class ArkSearchService:
         if not self.delta_job_path.exists():
             return {"status": "idle"}
         try:
-            return json.loads(self.delta_job_path.read_text(encoding="utf-8"))
+            payload = json.loads(self.delta_job_path.read_text(encoding="utf-8"))
         except Exception as exc:
             return {"status": "unknown", "message": f"差量更新状态读取失败: {exc}"}
+        status = str(payload.get("status") or "")
+        pid = payload.get("pid")
+        if status in {"started", "running"} and pid is not None:
+            try:
+                process_id = int(pid)
+            except (TypeError, ValueError):
+                return payload
+            if not self._process_exists(process_id):
+                return {
+                    **payload,
+                    "status": "interrupted",
+                    "message": "差量更新进程已退出，请重新提交。",
+                }
+            parent_pid = self._process_parent_pid(process_id)
+            if parent_pid is not None and parent_pid != os.getpid():
+                return {
+                    **payload,
+                    "status": "orphaned",
+                    "message": "差量更新子进程已成为孤儿进程，请等待其结束或手动检查后再重新提交。",
+                }
+        return payload
 
     def _write_delta_update_job(self, payload: dict[str, Any]) -> None:
         self.delta_job_path.parent.mkdir(parents=True, exist_ok=True)
@@ -1444,6 +1541,10 @@ class ArkSearchService:
         该方法只在检测到差量时启动；真正的模型调用发生在独立管线进程中，
         因此登录页面和状态检测仍然不消耗 token。
         """
+
+        existing_job = self.delta_update_job_status()
+        if existing_job.get("status") in {"started", "running", "orphaned"}:
+            return existing_job
 
         delta = self.index_delta()
         if not delta["has_delta"]:
@@ -1837,7 +1938,8 @@ def get_asset_image(asset_id: str):
 @app.post("/api/search", response_model=None)
 def search_photos(request: SearchRequest, background_tasks: BackgroundTasks):
     try:
-        rows = service.search(request.query, limit=max(1, min(request.limit, 200)))
+        normal_limit = max(1, min(request.limit, DEFAULT_SEARCH_RESULT_LIMIT))
+        rows = service.search(request.query, limit=normal_limit, person_limit=PERSON_SEARCH_RESULT_LIMIT)
         identifiers = [str(row["local_identifier"]) for row in rows if row.get("local_identifier")]
         if identifiers:
             background_tasks.add_task(

@@ -416,6 +416,14 @@ class Agent04FrontendTests(unittest.TestCase):
         self.assertIn("loadInitialGallery", app_js)
         self.assertIn("statusEl.hidden = true", app_js)
 
+    def test_agent04_search_requests_expanded_person_result_limit(self):
+        app_js = (PROJECT_ROOT / "frontend" / "agent04" / "app.js").read_text(encoding="utf-8")
+        run_search = app_js[app_js.index("async function runSearch") : app_js.index("async function runSearchFromShell")]
+
+        self.assertIn("const searchResultLimit = 5000;", app_js)
+        self.assertIn("body: JSON.stringify({ query, limit: searchResultLimit })", run_search)
+        self.assertNotIn("limit: 160", run_search)
+
     def test_lightbox_has_previous_and_next_controls(self):
         index_html = (PROJECT_ROOT / "frontend" / "agent04" / "index.html").read_text(encoding="utf-8")
 
@@ -424,24 +432,25 @@ class Agent04FrontendTests(unittest.TestCase):
         self.assertIn("data-lightbox-back", index_html)
         self.assertIn("返回", index_html)
 
-    def test_lightbox_back_button_lives_in_inspector_not_over_photo(self):
+    def test_lightbox_back_button_lives_in_inspector_header_not_over_photo(self):
         index_html = (PROJECT_ROOT / "frontend" / "agent04" / "index.html").read_text(encoding="utf-8")
         styles = (PROJECT_ROOT / "frontend" / "agent04" / "styles.css").read_text(encoding="utf-8")
 
         lightbox_outer = index_html[index_html.index('<dialog class="limb-lightbox"') : index_html.index('<div class="limb-lightbox-stage"')]
         inspector_panel = index_html[index_html.index('<aside class="limb-inspector">') : index_html.index('<p data-inspector-description')]
         inspector_head = index_html[index_html.index('<div class="limb-inspector-head">') : index_html.index("</div>", index_html.index('<div class="limb-inspector-head">'))]
+        back_rule = css_rule(styles, ".limb-lightbox-back")
 
-        self.assertIn("data-lightbox-back", lightbox_outer)
-        self.assertNotIn("data-lightbox-back", inspector_panel)
-        self.assertNotIn("data-lightbox-back", inspector_head)
+        self.assertNotIn("data-lightbox-back", lightbox_outer)
+        self.assertIn("data-lightbox-back", inspector_panel)
+        self.assertIn("data-lightbox-back", inspector_head)
         self.assertIn(".limb-lightbox-back", styles)
         self.assertIn("padding: 0;", styles[styles.index(".limb-lightbox {") : styles.index(".limb-lightbox::backdrop")])
-        self.assertIn("position: absolute;", styles[styles.index(".limb-lightbox-back") : styles.index(".limb-lightbox-back:hover")])
-        self.assertIn("top: 50%;", styles[styles.index(".limb-lightbox-back") : styles.index(".limb-lightbox-back:hover")])
-        self.assertIn("right: 10px;", styles[styles.index(".limb-lightbox-back") : styles.index(".limb-lightbox-back:hover")])
-        self.assertIn("transform: translateY(-50%);", styles[styles.index(".limb-lightbox-back") : styles.index(".limb-lightbox-back:hover")])
-        self.assertNotIn("left: 14px;", styles[styles.index(".limb-lightbox-back") : styles.index(".limb-lightbox-back:hover")])
+        self.assertIn("display: inline-grid;", back_rule)
+        self.assertNotIn("position: absolute;", back_rule)
+        self.assertNotIn("top: 50%;", back_rule)
+        self.assertNotIn("right: 10px;", back_rule)
+        self.assertNotIn("left: 14px;", back_rule)
 
     def test_lightbox_primary_actions_are_in_inspector_header(self):
         index_html = (PROJECT_ROOT / "frontend" / "agent04" / "index.html").read_text(encoding="utf-8")
@@ -457,7 +466,9 @@ class Agent04FrontendTests(unittest.TestCase):
         self.assertIn("data-copy-path", inspector_head)
         self.assertIn("limb-inspector-quick-actions", inspector_head)
         self.assertIn(".limb-inspector-quick-actions", styles)
-        self.assertIn("grid-template-columns: auto auto 1fr;", styles)
+        self.assertIn("grid-template-columns: auto minmax(0, 1fr);", css_rule(styles, ".limb-inspector-head"))
+        self.assertIn("grid-column: 2;", css_rule(styles, ".limb-inspector-quick-actions"))
+        self.assertIn("justify-self: end;", css_rule(styles, ".limb-inspector-quick-actions"))
         self.assertIn("align-items: center;", css_rule(styles, ".limb-inspector-head"))
 
     def test_lightbox_keeps_photo_and_inspector_visually_separated(self):
@@ -472,10 +483,15 @@ class Agent04FrontendTests(unittest.TestCase):
         self.assertIn("inset: 8px;", styles[styles.index(".limb-lightbox {") : styles.index(".limb-lightbox::backdrop")])
         self.assertIn("width: calc(100vw - 16px);", styles[styles.index(".limb-lightbox {") : styles.index(".limb-lightbox::backdrop")])
         self.assertIn("height: calc(100vh - 16px);", styles[styles.index(".limb-lightbox {") : styles.index(".limb-lightbox::backdrop")])
-        self.assertIn("position: absolute;", stage_img_rule)
-        self.assertIn("inset: 0;", stage_img_rule)
-        self.assertIn("\n  width: 100%;", stage_img_rule)
-        self.assertIn("\n  height: 100%;", stage_img_rule)
+        self.assertIn("grid-area: photo;", stage_img_rule)
+        self.assertIn("align-self: center;", stage_img_rule)
+        self.assertIn("justify-self: center;", stage_img_rule)
+        self.assertIn("\n  width: auto;", stage_img_rule)
+        self.assertIn("\n  height: auto;", stage_img_rule)
+        self.assertIn("max-width: 100%;", stage_img_rule)
+        self.assertIn("max-height: 100%;", stage_img_rule)
+        self.assertNotIn("position: absolute;", stage_img_rule)
+        self.assertNotIn("inset: 0;", stage_img_rule)
         self.assertIn("object-fit: contain !important;", stage_img_rule)
         self.assertIn("object-position: center center;", stage_img_rule)
 

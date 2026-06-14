@@ -1,4 +1,6 @@
 import tempfile
+import json
+import os
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -177,7 +179,7 @@ class ArkMainTests(unittest.TestCase):
         class FakeService:
             last_search_diagnostic = {}
 
-            def search(self, query, *, limit=50):
+            def search(self, query, *, limit=50, person_limit=None):
                 return [
                     {
                         "md5": "abc",
@@ -626,6 +628,179 @@ class ArkMainTests(unittest.TestCase):
             self.assertEqual(rows[0]["matched_labels"], ["老妈"])
             self.assertEqual(rows[0]["identity_source"], "apple_photos")
 
+    def test_apple_people_search_can_return_full_person_result_set(self):
+        class FakeAppleBridge:
+            def list_named_people(self):
+                return [
+                    {
+                        "label": "老妈",
+                        "uuid": "person-mom",
+                        "entity_type": "person",
+                        "asset_count": 212,
+                        "face_count": 212,
+                        "source": "apple_photos",
+                    }
+                ]
+
+            def iter_person_asset_links(self):
+                for index in range(212):
+                    yield {
+                        "label": "老妈",
+                        "uuid": "person-mom",
+                        "original_path": str(library_root / "originals" / f"{index:03d}.jpg"),
+                        "quality": 1.0 - (index / 1000),
+                        "source": "apple_photos",
+                    }
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            library_root = root / "Photos Library.photoslibrary"
+            db = ArkPhotoIndexDatabase(root / "limb_ark.sqlite3")
+            for index in range(212):
+                original_path = library_root / "originals" / f"{index:03d}.jpg"
+                original_path.parent.mkdir(parents=True, exist_ok=True)
+                original_path.write_bytes(b"original")
+                db.upsert_photo(
+                    path=original_path,
+                    md5=f"mom-{index:03d}",
+                    modify_time=1.0,
+                    description=f"老妈照片 {index}",
+                    tags=["老妈"],
+                    colors=["绿色"],
+                    asset_id=f"asset-mom-{index:03d}",
+                    local_identifier=f"ASSET-MOM-{index:03d}/L0/001",
+                    original_path=original_path,
+                    source="apple_photos",
+                )
+            service = ArkSearchService(
+                db_path=root / "limb_ark.sqlite3",
+                photo_root=library_root,
+                apple_people_bridge=FakeAppleBridge(),
+            )
+
+            rows = service.search("老妈", limit=160, person_limit=500)
+
+            self.assertEqual(len(rows), 212)
+            self.assertEqual(rows[0]["md5"], "mom-000")
+            self.assertEqual(rows[-1]["md5"], "mom-211")
+
+    def test_apple_people_search_orders_results_by_capture_time_descending(self):
+        class FakeAppleBridge:
+            def list_named_people(self):
+                return [
+                    {
+                        "label": "老妈",
+                        "uuid": "person-mom",
+                        "entity_type": "person",
+                        "asset_count": 3,
+                        "face_count": 3,
+                        "source": "apple_photos",
+                    }
+                ]
+
+            def iter_person_asset_links(self):
+                return [
+                    {
+                        "label": "老妈",
+                        "uuid": "person-mom",
+                        "original_path": str(old_photo),
+                        "quality": 0.99,
+                        "source": "apple_photos",
+                    },
+                    {
+                        "label": "老妈",
+                        "uuid": "person-mom",
+                        "original_path": str(new_photo),
+                        "quality": 0.50,
+                        "source": "apple_photos",
+                    },
+                    {
+                        "label": "老妈",
+                        "uuid": "person-mom",
+                        "original_path": str(undated_photo),
+                        "quality": 1.00,
+                        "source": "apple_photos",
+                    },
+                ]
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            library_root = root / "Photos Library.photoslibrary"
+            old_photo = library_root / "originals" / "old.jpg"
+            new_photo = library_root / "originals" / "new.jpg"
+            undated_photo = library_root / "originals" / "undated.jpg"
+            for path in (old_photo, new_photo, undated_photo):
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_bytes(b"original")
+            db = ArkPhotoIndexDatabase(root / "limb_ark.sqlite3")
+            db.upsert_photo(
+                path=old_photo,
+                md5="old-md5",
+                modify_time=1.0,
+                description="老妈旧照片",
+                tags=["老妈"],
+                colors=["绿色"],
+                taken_at="2020-01-01T10:00:00",
+                original_path=old_photo,
+                source="apple_photos",
+            )
+            db.upsert_photo(
+                path=new_photo,
+                md5="new-md5",
+                modify_time=1.0,
+                description="老妈新照片",
+                tags=["老妈"],
+                colors=["绿色"],
+                taken_at="2024-01-01T10:00:00",
+                original_path=new_photo,
+                source="apple_photos",
+            )
+            db.upsert_photo(
+                path=undated_photo,
+                md5="undated-md5",
+                modify_time=1.0,
+                description="老妈无日期照片",
+                tags=["老妈"],
+                colors=["绿色"],
+                original_path=undated_photo,
+                source="apple_photos",
+            )
+            service = ArkSearchService(
+                db_path=root / "limb_ark.sqlite3",
+                photo_root=library_root,
+                apple_people_bridge=FakeAppleBridge(),
+            )
+
+            rows = service.search("老妈", limit=10, person_limit=10)
+
+            self.assertEqual([row["md5"] for row in rows], ["new-md5", "old-md5", "undated-md5"])
+
+    def test_search_route_passes_expanded_person_limit_to_service(self):
+        class FakeBackgroundTasks:
+            def add_task(self, func, *args, **kwargs):
+                pass
+
+        class FakeService:
+            last_search_diagnostic = {}
+
+            def __init__(self):
+                self.kwargs = None
+
+            def search(self, query, **kwargs):
+                self.kwargs = kwargs
+                return []
+
+        fake_service = FakeService()
+        with patch("backend.ark_main.service", fake_service):
+            response = ark_main.search_photos(
+                ark_main.SearchRequest(query="老妈", limit=160),
+                FakeBackgroundTasks(),
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(fake_service.kwargs["limit"], 160)
+        self.assertGreater(fake_service.kwargs["person_limit"], 200)
+
     def test_service_index_delta_falls_back_to_apple_inventory_when_bridge_is_missing(self):
         class FakeAppleBridge:
             def __init__(self, library_root):
@@ -751,6 +926,105 @@ class ArkMainTests(unittest.TestCase):
             self.assertIn("run_index_pipeline.py", calls[0][0])
             self.assertEqual(calls[0][0][2], str(originals.resolve()))
             self.assertEqual(payload["delta"]["missing_count"], 1)
+
+    def test_service_reuses_running_delta_update_job_instead_of_starting_duplicate_pipeline(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            photo_root = root / "Photos Library.photoslibrary"
+            originals = photo_root / "originals"
+            originals.mkdir(parents=True)
+            (originals / "new.jpg").write_bytes(b"new")
+            service = ArkSearchService(
+                db_path=root / "limb_ark.sqlite3",
+                photo_root=photo_root,
+                delta_job_path=root / "delta_update_job.json",
+                delta_log_path=root / "delta_update_job.log",
+            )
+            running_job = {
+                "status": "running",
+                "pid": os.getpid(),
+                "delta": {"has_delta": True, "missing_count": 1},
+                "started_at": "2026-06-13T12:00:00+0800",
+            }
+            service._write_delta_update_job(running_job)
+
+            def fake_popen(*args, **kwargs):
+                raise AssertionError("running delta job should be reused")
+
+            with patch.object(service, "_process_exists", return_value=True), patch.object(
+                service, "_process_parent_pid", return_value=os.getpid()
+            ):
+                payload = service.start_delta_update(popen=fake_popen, monitor_async=False)
+
+            self.assertEqual(payload["status"], "running")
+            self.assertEqual(payload["pid"], os.getpid())
+
+    def test_delta_update_job_status_marks_dead_pid_as_interrupted(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            service = ArkSearchService(
+                db_path=root / "limb_ark.sqlite3",
+                photo_root=root,
+                delta_job_path=root / "delta_update_job.json",
+            )
+            service._write_delta_update_job(
+                {
+                    "status": "running",
+                    "pid": 999999,
+                    "started_at": "2026-06-13T12:00:00+0800",
+                }
+            )
+
+            with patch.object(service, "_process_exists", return_value=False):
+                payload = service.delta_update_job_status()
+
+            self.assertEqual(payload["status"], "interrupted")
+            self.assertIn("已退出", payload["message"])
+
+    def test_delta_update_job_status_marks_live_orphan_process_separately(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            service = ArkSearchService(
+                db_path=root / "limb_ark.sqlite3",
+                photo_root=root,
+                delta_job_path=root / "delta_update_job.json",
+            )
+            service._write_delta_update_job(
+                {
+                    "status": "running",
+                    "pid": 999998,
+                    "started_at": "2026-06-13T12:00:00+0800",
+                }
+            )
+
+            with patch.object(service, "_process_exists", return_value=True), patch.object(
+                service, "_process_parent_pid", return_value=1
+            ):
+                payload = service.delta_update_job_status()
+
+            self.assertEqual(payload["status"], "orphaned")
+            self.assertIn("孤儿", payload["message"])
+
+    def test_face_reindex_job_status_marks_dead_current_pid_as_interrupted(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            service = ArkSearchService(
+                db_path=root / "limb_ark.sqlite3",
+                photo_root=root,
+                face_reindex_job_path=root / "face_reindex_job.json",
+            )
+            service._write_face_reindex_job(
+                {
+                    "status": "running",
+                    "pid": os.getpid(),
+                    "started_at": "2026-06-13T12:00:00+0800",
+                }
+            )
+
+            with patch.object(service, "_process_exists", return_value=False):
+                payload = service.face_reindex_job_status()
+
+            self.assertEqual(payload["status"], "interrupted")
 
     def test_service_prunes_stale_only_delta_without_starting_pipeline(self):
         with tempfile.TemporaryDirectory() as temp_dir:

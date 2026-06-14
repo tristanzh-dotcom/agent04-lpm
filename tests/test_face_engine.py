@@ -1,6 +1,7 @@
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 import numpy as np
 
@@ -176,6 +177,31 @@ class FaceEngineTests(unittest.TestCase):
             self.assertEqual(stats, {"indexed": 2, "skipped": 0, "failed": 0})
             self.assertEqual([item["processed"] for item in snapshots], [1, 2])
             self.assertEqual([item["total"] for item in snapshots], [2, 2])
+
+    def test_match_label_reuses_cached_pickles_when_files_are_unchanged(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            photo = root / "xiaofei.jpg"
+            samples = [root / "sample1.jpg", root / "sample2.jpg", root / "sample3.jpg"]
+            photo.write_bytes(b"photo")
+            for sample in samples:
+                sample.write_bytes(b"sample")
+
+            def fake_extractor(path):
+                return [FaceEmbedding(embedding=np.array([1.0, 0.0, 0.0], dtype=np.float32))]
+
+            engine = FaceVectorEngine(data_dir=root / "data", face_extractor=fake_extractor, face_threshold=0.8)
+            engine.register_profile("小菲", samples)
+            engine.scan_photo_paths([photo])
+            engine._pickle_cache.clear()
+
+            with patch.object(engine, "_load_pickle", wraps=engine._load_pickle) as load_pickle:
+                first = engine.match_label("小菲", limit=10)
+                second = engine.match_label("小菲", limit=10)
+
+            self.assertEqual(len(first), 1)
+            self.assertEqual(len(second), 1)
+            self.assertEqual(load_pickle.call_count, 2)
 
 
 if __name__ == "__main__":

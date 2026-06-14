@@ -58,6 +58,7 @@ class FaceVectorEngine:
         self.face_threshold = float(face_threshold if face_threshold is not None else os.environ.get("LIMB_FACE_THRESHOLD", 0.45))
         self.face_extractor = face_extractor
         self._face_app: Any | None = None
+        self._pickle_cache: dict[Path, tuple[tuple[int, int], dict[str, Any]]] = {}
 
     def register_profile(self, label: str, image_paths: Iterable[str | os.PathLike[str]]) -> dict[str, Any]:
         clean_label = str(label).strip()
@@ -237,10 +238,10 @@ class FaceVectorEngine:
         return self._extract_faces_with_insightface(image_path)
 
     def load_profiles(self) -> dict[str, dict[str, Any]]:
-        return self._load_pickle(self.profiles_path)
+        return self._load_cached_pickle(self.profiles_path)
 
     def load_photo_index(self) -> dict[str, dict[str, Any]]:
-        return self._load_pickle(self.photo_index_path)
+        return self._load_cached_pickle(self.photo_index_path)
 
     def iter_image_files(self, root: Path) -> Iterable[Path]:
         for current_root, _, files in os.walk(root):
@@ -352,7 +353,22 @@ class FaceVectorEngine:
             payload = pickle.load(file)
         return payload if isinstance(payload, dict) else {}
 
+    def _load_cached_pickle(self, path: Path) -> dict[str, Any]:
+        if not path.exists():
+            self._pickle_cache.pop(path, None)
+            return {}
+        stat = path.stat()
+        fingerprint = (int(stat.st_mtime_ns), int(stat.st_size))
+        cached = self._pickle_cache.get(path)
+        if cached is not None and cached[0] == fingerprint:
+            return cached[1]
+        payload = self._load_pickle(path)
+        self._pickle_cache[path] = (fingerprint, payload)
+        return payload
+
     def _save_pickle(self, path: Path, payload: dict[str, Any]) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)
         with path.open("wb") as file:
             pickle.dump(payload, file)
+        stat = path.stat()
+        self._pickle_cache[path] = ((int(stat.st_mtime_ns), int(stat.st_size)), payload)

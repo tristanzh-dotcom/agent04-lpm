@@ -277,6 +277,60 @@ class ArkFaceApiTests(unittest.TestCase):
             self.assertEqual(rows[0]["matched_labels"], ["小菲"])
             self.assertAlmostEqual(rows[0]["face_score"], 0.91)
 
+    def test_manual_face_search_orders_results_by_capture_time_descending(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            old_photo = root / "xiaofei-dog.jpg"
+            new_photo = root / "xiaofei-birthday.jpg"
+            undated_photo = root / "xiaofei-no-date.jpg"
+            for path in (old_photo, new_photo, undated_photo):
+                path.write_bytes(b"fake")
+            db = ArkPhotoIndexDatabase(root / "limb.sqlite3")
+            db.upsert_photo(
+                path=old_photo,
+                md5="old-md5",
+                modify_time=1.0,
+                description="小菲旧照片",
+                tags=["小菲"],
+                colors=["绿色"],
+                taken_at="2020-01-01T10:00:00",
+            )
+            db.upsert_photo(
+                path=new_photo,
+                md5="new-md5",
+                modify_time=1.0,
+                description="小菲新照片",
+                tags=["小菲"],
+                colors=["绿色"],
+                taken_at="2024-01-01T10:00:00",
+            )
+            db.upsert_photo(
+                path=undated_photo,
+                md5="undated-md5",
+                modify_time=1.0,
+                description="小菲无日期照片",
+                tags=["小菲"],
+                colors=["绿色"],
+            )
+            class AllPathFaceEngine(FakeFaceEngine):
+                def match_label(self, label, *, candidate_paths=None, threshold=None, limit=100):
+                    paths = [str(path) for path in (candidate_paths if candidate_paths is not None else self.indexed_paths)]
+                    return [{"path": path, "label": label, "face_score": 0.91} for path in paths]
+
+            fake = AllPathFaceEngine()
+            fake.indexed_paths = [str(old_photo), str(new_photo), str(undated_photo)]
+            service = ArkSearchService(
+                db_path=root / "limb.sqlite3",
+                photo_root=root,
+                query_bridge=None,
+                face_engine=fake,
+                apple_people_bridge=None,
+            )
+
+            rows = service.search("小菲", limit=10, person_limit=10)
+
+            self.assertEqual([row["md5"] for row in rows], ["new-md5", "old-md5", "undated-md5"])
+
     def test_people_profiles_route_merges_limb_and_apple_photos_sources(self):
         fake_face = FakeFaceEngine()
         fake_service = ArkSearchService(
@@ -779,7 +833,7 @@ class ArkFaceApiTests(unittest.TestCase):
                 "message": "已找到 2 张符合 [吃饭] 的照片，但没有照片同时匹配 [老张] 的人脸。",
             }
 
-            def search(self, query, *, limit=50):
+            def search(self, query, *, limit=50, person_limit=None):
                 return []
 
         with patch("backend.ark_main.service", DiagnosticService()):
