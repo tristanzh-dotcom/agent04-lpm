@@ -1,3 +1,5 @@
+from pathlib import Path
+
 from flask import Flask, jsonify, request
 
 try:
@@ -7,7 +9,7 @@ except ImportError:  # pragma: no cover - direct script execution fallback
 
 
 app = Flask(__name__)
-DB_PATH = "/Users/tristanzh/agent/Local-photo-model/tests/sandbox_limb_workbench.db"
+DB_PATH = str(Path(__file__).resolve().parents[1] / "tests" / "sandbox_limb_workbench.db")
 query_engine = EntityQueryEngine(DB_PATH)
 
 

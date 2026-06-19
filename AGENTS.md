@@ -1,6 +1,6 @@
 # AGENTS.md - Local Photo Model
 
-Scope: `/Users/tristanzh/agent/Local-photo-model`.
+Scope: `/Users/tristanzh/agent/agent04-lpm`.
 
 ## Web Publishing Boundary
 
@@ -25,4 +25,3 @@ Classify each Web-visible change before editing:
 - `Shared Platform Change`: shared sidebar, shared framework, global theme, server common behavior, contract schema, or all-agent tests.
 
 Hard rule: 不修改 shared 侧边栏 unless TZ explicitly declares a `Shared Platform Change`.
-
