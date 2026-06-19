@@ -13,7 +13,7 @@ from backend.ark_main import ArkSearchService, DeepSeekQueryBridge, PhotoUpdateR
 
 class ArkMainTests(unittest.TestCase):
     def test_health_route_is_lightweight(self):
-        self.assertEqual(ark_main.health(), {"status": "ok"})
+        self.assertEqual(ark_main.health(), {"status": "ok", "service": "agent04-limb"})
 
     def test_search_returns_url_description_and_tags(self):
         with tempfile.TemporaryDirectory() as temp_dir:

@@ -1,0 +1,17 @@
+{
+  "status": "running",
+  "pid": 44914,
+  "source": "apple_photos_assets",
+  "root": null,
+  "total": 14960,
+  "processed": 11500,
+  "summary": {
+    "indexed": 3964,
+    "skipped": 7529,
+    "failed": 7
+  },
+  "started_at": "2026-06-14T08:23:46+0800",
+  "updated_at": "2026-06-14T08:31:54+0800",
+  "job_path": "/Users/tristanzh/agent/Local-photo-model/data/face_reindex_job.json",
+  "current_path": "/Users/tristanzh/Pictures/Photos Library.photoslibrary/resources/derivatives/B/B6C653D3-A7EF-4C9C-82CE-DFD898D5CEF2_1_102_o.jpeg"
+}

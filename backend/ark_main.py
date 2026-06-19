@@ -1914,7 +1914,7 @@ def get_face_avatar(file_name: str):
 
 @app.get("/api/health")
 def health() -> dict[str, str]:
-    return {"status": "ok"}
+    return {"status": "ok", "service": "agent04-limb"}
 
 
 @app.get("/api/assets/{asset_id}/image")
