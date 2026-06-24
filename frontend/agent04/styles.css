@@ -11,6 +11,9 @@
   --danger: #b33d35;
   --cyan: #6bd3c8;
   --shadow: 0 24px 70px rgba(0, 0, 0, 0.34), inset 0 1px 0 rgba(255, 255, 255, 0.04);
+  --web-scrollbar-thumb: rgba(120, 183, 137, 0.42);
+  --web-scrollbar-thumb-hover: rgba(120, 183, 137, 0.68);
+  --web-scrollbar-track: rgba(255, 255, 255, 0.035);
 }
 
 :root[data-web-theme="light-tech"] {
@@ -26,10 +29,72 @@
   --danger: #c76464;
   --cyan: #35a9a4;
   --shadow: 0 14px 34px rgba(90, 160, 200, 0.1);
+  --web-scrollbar-thumb: rgba(63, 158, 197, 0.42);
+  --web-scrollbar-thumb-hover: rgba(63, 158, 197, 0.62);
+  --web-scrollbar-track: rgba(191, 233, 251, 0.22);
 }
 
 * {
   box-sizing: border-box;
+}
+
+html,
+body,
+.limb-canvas,
+.limb-masonry,
+.limb-lightbox,
+.limb-inspector,
+.limb-similar-strip,
+textarea {
+  scrollbar-color: var(--web-scrollbar-thumb) var(--web-scrollbar-track);
+  scrollbar-width: thin;
+}
+
+html::-webkit-scrollbar,
+body::-webkit-scrollbar,
+.limb-canvas::-webkit-scrollbar,
+.limb-masonry::-webkit-scrollbar,
+.limb-lightbox::-webkit-scrollbar,
+.limb-inspector::-webkit-scrollbar,
+.limb-similar-strip::-webkit-scrollbar,
+textarea::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+html::-webkit-scrollbar-track,
+body::-webkit-scrollbar-track,
+.limb-canvas::-webkit-scrollbar-track,
+.limb-masonry::-webkit-scrollbar-track,
+.limb-lightbox::-webkit-scrollbar-track,
+.limb-inspector::-webkit-scrollbar-track,
+.limb-similar-strip::-webkit-scrollbar-track,
+textarea::-webkit-scrollbar-track {
+  background: var(--web-scrollbar-track);
+}
+
+html::-webkit-scrollbar-thumb,
+body::-webkit-scrollbar-thumb,
+.limb-canvas::-webkit-scrollbar-thumb,
+.limb-masonry::-webkit-scrollbar-thumb,
+.limb-lightbox::-webkit-scrollbar-thumb,
+.limb-inspector::-webkit-scrollbar-thumb,
+.limb-similar-strip::-webkit-scrollbar-thumb,
+textarea::-webkit-scrollbar-thumb {
+  border: 2px solid var(--web-scrollbar-track);
+  border-radius: 999px;
+  background: var(--web-scrollbar-thumb);
+}
+
+html::-webkit-scrollbar-thumb:hover,
+body::-webkit-scrollbar-thumb:hover,
+.limb-canvas::-webkit-scrollbar-thumb:hover,
+.limb-masonry::-webkit-scrollbar-thumb:hover,
+.limb-lightbox::-webkit-scrollbar-thumb:hover,
+.limb-inspector::-webkit-scrollbar-thumb:hover,
+.limb-similar-strip::-webkit-scrollbar-thumb:hover,
+textarea::-webkit-scrollbar-thumb:hover {
+  background: var(--web-scrollbar-thumb-hover);
 }
 
 .limb-canvas {
@@ -54,10 +119,9 @@
   padding: clamp(6px, 1.2vw, 14px);
   background:
     radial-gradient(circle at 53% 18%, rgba(112, 138, 125, 0.1), transparent 28%),
-    linear-gradient(90deg, rgba(255, 255, 255, 0.018) 1px, transparent 1px),
     linear-gradient(180deg, rgba(34, 41, 46, 0.62), #07090a 58%, #07090a 100%);
-  background-repeat: no-repeat, repeat, no-repeat;
-  background-size: auto, 42px 42px, auto;
+  background-repeat: no-repeat;
+  background-size: auto;
 }
 
 :root[data-web-theme="light-tech"] .limb-canvas {
