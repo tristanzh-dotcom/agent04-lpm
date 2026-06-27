@@ -881,7 +881,7 @@ class ArkSearchService:
         except Exception as exc:
             print(f"[LIMB-Ark] LIMB 人物头像读取失败: {exc}", flush=True)
             return None
-        return self._avatar_url_from_paths([match["path"] for match in matches if match.get("path")])
+        return self._avatar_url_from_paths([match["path"] for match in matches if match.get("path")], fallback_to_photo=True)
 
     def resolve_face_avatar_static_path(self, file_name: str) -> Path | None:
         if self.face_engine is None:
@@ -900,7 +900,11 @@ class ArkSearchService:
     def _avatar_url_from_paths(self, paths: list[str], *, fallback_to_photo: bool = False) -> str | None:
         rows = self.database.get_photos_by_paths(paths)
         if rows:
-            return self.thumbnail_url(rows[0]["md5"])
+            md5 = str(rows[0].get("md5") or "")
+            if md5 and self.resolve_thumbnail_static_path(f"{md5}.jpg") is not None:
+                return self.thumbnail_url(md5)
+            if fallback_to_photo and rows[0].get("path"):
+                return self.photo_path_to_url(rows[0]["path"])
         if fallback_to_photo and paths:
             return self.photo_path_to_url(paths[0])
         return None

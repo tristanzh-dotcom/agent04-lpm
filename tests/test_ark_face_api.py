@@ -353,14 +353,20 @@ class ArkFaceApiTests(unittest.TestCase):
     def test_people_profiles_include_avatar_urls_for_apple_and_limb_sources(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
+            thumbnail_dir = root / "thumbnails"
+            thumbnail_dir.mkdir()
             apple_photo = root / "apple-xiaofei.jpg"
             limb_photo = root / "xiaofei-dog.jpg"
             apple_photo.write_bytes(b"fake")
             limb_photo.write_bytes(b"fake")
+            apple_md5 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+            limb_md5 = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+            (thumbnail_dir / f"{apple_md5}.jpg").write_bytes(b"apple-thumb")
+            (thumbnail_dir / f"{limb_md5}.jpg").write_bytes(b"limb-thumb")
             db = ArkPhotoIndexDatabase(root / "limb.sqlite3")
             db.upsert_photo(
                 path=apple_photo,
-                md5="apple-avatar-md5",
+                md5=apple_md5,
                 modify_time=1.0,
                 description="Apple Photos 人物代表图",
                 tags=["小菲"],
@@ -368,7 +374,7 @@ class ArkFaceApiTests(unittest.TestCase):
             )
             db.upsert_photo(
                 path=limb_photo,
-                md5="limb-avatar-md5",
+                md5=limb_md5,
                 modify_time=1.0,
                 description="LIMB 人物代表图",
                 tags=["小菲"],
@@ -391,6 +397,7 @@ class ArkFaceApiTests(unittest.TestCase):
             service = ArkSearchService(
                 db_path=root / "limb.sqlite3",
                 photo_root=root,
+                thumbnail_dir=thumbnail_dir,
                 query_bridge=None,
                 face_engine=fake_face,
                 apple_people_bridge=bridge,
@@ -399,9 +406,49 @@ class ArkFaceApiTests(unittest.TestCase):
             profiles = service.list_person_profiles()
 
             self.assertEqual(profiles[0]["source"], "apple_photos")
-            self.assertEqual(profiles[0]["avatar_url"], "http://127.0.0.1:8004/thumbnails/apple-avatar-md5.jpg")
+            self.assertEqual(profiles[0]["avatar_url"], f"http://127.0.0.1:8004/thumbnails/{apple_md5}.jpg")
             self.assertEqual(profiles[1]["source"], "limb_manual")
-            self.assertEqual(profiles[1]["avatar_url"], "http://127.0.0.1:8004/thumbnails/limb-avatar-md5.jpg")
+            self.assertEqual(profiles[1]["avatar_url"], f"http://127.0.0.1:8004/thumbnails/{limb_md5}.jpg")
+
+    def test_apple_people_avatar_does_not_return_missing_thumbnail_url(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            apple_photo = root / "apple-xiaofei.jpg"
+            apple_photo.write_bytes(b"fake")
+            db = ArkPhotoIndexDatabase(root / "limb.sqlite3")
+            db.upsert_photo(
+                path=apple_photo,
+                md5="missing-thumbnail-md5",
+                modify_time=1.0,
+                description="Apple Photos 人物代表图",
+                tags=["小菲"],
+                colors=["白色"],
+            )
+            bridge = FakeApplePeopleBridge(
+                links=[
+                    {
+                        "label": "小菲",
+                        "uuid": "APPLE-PERSON-1",
+                        "asset_uuid": "ASSET-1",
+                        "original_path": str(apple_photo),
+                        "quality": 0.95,
+                        "source": "apple_photos",
+                    }
+                ]
+            )
+            service = ArkSearchService(
+                db_path=root / "limb.sqlite3",
+                photo_root=root,
+                thumbnail_dir=root / "missing-thumbnails",
+                query_bridge=None,
+                face_engine=None,
+                apple_people_bridge=bridge,
+            )
+
+            profiles = service.list_person_profiles()
+
+            self.assertEqual(profiles[0]["avatar_url"], "http://127.0.0.1:8004/photos/apple-xiaofei.jpg")
+            self.assertNotIn("/thumbnails/missing-thumbnail-md5.jpg", profiles[0]["avatar_url"])
 
     def test_people_profiles_reuses_apple_asset_links_for_avatar_resolution(self):
         class CountingApplePeopleBridge:
@@ -435,14 +482,20 @@ class ArkFaceApiTests(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
+            thumbnail_dir = root / "thumbnails"
+            thumbnail_dir.mkdir()
             xiaofei_photo = root / "xiaofei.jpg"
             laoma_photo = root / "laoma.jpg"
             xiaofei_photo.write_bytes(b"fake")
             laoma_photo.write_bytes(b"fake")
+            xiaofei_md5 = "cccccccccccccccccccccccccccccccc"
+            laoma_md5 = "dddddddddddddddddddddddddddddddd"
+            (thumbnail_dir / f"{xiaofei_md5}.jpg").write_bytes(b"xiaofei-thumb")
+            (thumbnail_dir / f"{laoma_md5}.jpg").write_bytes(b"laoma-thumb")
             db = ArkPhotoIndexDatabase(root / "limb.sqlite3")
             db.upsert_photo(
                 path=xiaofei_photo,
-                md5="xiaofei-avatar-md5",
+                md5=xiaofei_md5,
                 modify_time=1.0,
                 description="小菲头像",
                 tags=["小菲"],
@@ -450,7 +503,7 @@ class ArkFaceApiTests(unittest.TestCase):
             )
             db.upsert_photo(
                 path=laoma_photo,
-                md5="laoma-avatar-md5",
+                md5=laoma_md5,
                 modify_time=1.0,
                 description="老妈头像",
                 tags=["老妈"],
@@ -465,6 +518,7 @@ class ArkFaceApiTests(unittest.TestCase):
             service = ArkSearchService(
                 db_path=root / "limb.sqlite3",
                 photo_root=root,
+                thumbnail_dir=thumbnail_dir,
                 query_bridge=None,
                 face_engine=None,
                 apple_people_bridge=bridge,
@@ -474,8 +528,8 @@ class ArkFaceApiTests(unittest.TestCase):
 
             self.assertEqual(bridge.asset_link_calls, 1)
             self.assertEqual([profile["label"] for profile in profiles], ["小菲", "老妈"])
-            self.assertEqual(profiles[0]["avatar_url"], "http://127.0.0.1:8004/thumbnails/xiaofei-avatar-md5.jpg")
-            self.assertEqual(profiles[1]["avatar_url"], "http://127.0.0.1:8004/thumbnails/laoma-avatar-md5.jpg")
+            self.assertEqual(profiles[0]["avatar_url"], f"http://127.0.0.1:8004/thumbnails/{xiaofei_md5}.jpg")
+            self.assertEqual(profiles[1]["avatar_url"], f"http://127.0.0.1:8004/thumbnails/{laoma_md5}.jpg")
 
     def test_manual_people_profile_avatar_prefers_registered_sample_avatar_over_face_match(self):
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -515,6 +569,37 @@ class ArkFaceApiTests(unittest.TestCase):
 
             self.assertEqual(profiles[1]["source"], "limb_manual")
             self.assertEqual(profiles[1]["avatar_url"], "http://127.0.0.1:8004/face-avatars/sample-avatar.jpg")
+
+    def test_manual_people_profile_avatar_does_not_return_missing_thumbnail_url(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            limb_photo = root / "xiaofei-dog.jpg"
+            limb_photo.write_bytes(b"fake")
+            db = ArkPhotoIndexDatabase(root / "limb.sqlite3")
+            db.upsert_photo(
+                path=limb_photo,
+                md5="missing-limb-thumbnail-md5",
+                modify_time=1.0,
+                description="LIMB 人物代表图",
+                tags=["小菲"],
+                colors=["绿色"],
+            )
+            fake_face = FakeFaceEngine()
+            fake_face.indexed_paths = [str(limb_photo)]
+            service = ArkSearchService(
+                db_path=root / "limb.sqlite3",
+                photo_root=root,
+                thumbnail_dir=root / "missing-thumbnails",
+                query_bridge=None,
+                face_engine=fake_face,
+                apple_people_bridge=FakeApplePeopleBridge(links=[]),
+            )
+
+            profiles = service.list_person_profiles()
+
+            self.assertEqual(profiles[1]["source"], "limb_manual")
+            self.assertEqual(profiles[1]["avatar_url"], "http://127.0.0.1:8004/photos/xiaofei-dog.jpg")
+            self.assertNotIn("/thumbnails/missing-limb-thumbnail-md5.jpg", profiles[1]["avatar_url"])
 
     def test_apple_people_avatar_falls_back_to_photo_url_when_not_indexed(self):
         with tempfile.TemporaryDirectory() as temp_dir:
