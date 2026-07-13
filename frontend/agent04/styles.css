@@ -180,6 +180,11 @@ textarea::-webkit-scrollbar-thumb:hover {
   color: var(--ink);
 }
 
+:root[data-web-theme="light-tech"] .limb-card-capture span {
+  background: rgba(232, 247, 255, 0.78);
+  color: var(--muted);
+}
+
 :root[data-web-theme="light-tech"] .limb-search button,
 :root[data-web-theme="light-tech"] .limb-face-input-row button,
 :root[data-web-theme="light-tech"] .limb-profile-tools button,
@@ -796,6 +801,10 @@ textarea::-webkit-scrollbar-thumb:hover {
   margin-top: 20px;
 }
 
+.limb-advanced > .limb-inspector-block {
+  display: none;
+}
+
 .limb-inspector-block h3 {
   color: rgba(255, 249, 236, 0.58);
   font-size: 12px;
@@ -840,20 +849,42 @@ textarea::-webkit-scrollbar-thumb:hover {
 
 .limb-inspector-actions button {
   min-height: 38px;
-  padding: 0 13px;
-  font-weight: 780;
+  border-radius: 10px;
+  padding: 0 14px;
+  background: rgba(255, 255, 255, 0.055);
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 700;
 }
 
-.limb-inspector-actions button:first-child {
+.limb-inspector-actions button:first-child:not(.is-danger) {
   border-color: rgba(107, 211, 200, 0.36);
-  background: linear-gradient(135deg, rgba(107, 211, 200, 0.22), rgba(217, 170, 69, 0.16));
-  color: #fff9ec;
+  background: linear-gradient(135deg, rgba(107, 211, 200, 0.18), rgba(120, 183, 137, 0.14));
+  color: var(--ink);
 }
 
 .limb-inspector-actions .is-danger {
   border-color: rgba(179, 61, 53, 0.42);
-  background: var(--danger);
-  color: #fff;
+  background: rgba(179, 61, 53, 0.12);
+  color: #f0b4ad;
+}
+
+:root[data-web-theme="light-tech"] .limb-inspector-actions button {
+  border-color: var(--line);
+  background: rgba(249, 253, 255, 0.9);
+  color: var(--muted);
+}
+
+:root[data-web-theme="light-tech"] .limb-inspector-actions button:first-child:not(.is-danger) {
+  border-color: rgba(63, 158, 197, 0.34);
+  background: rgba(191, 233, 251, 0.55);
+  color: var(--ink);
+}
+
+:root[data-web-theme="light-tech"] .limb-inspector-actions .is-danger {
+  border-color: rgba(199, 100, 100, 0.38);
+  background: rgba(199, 100, 100, 0.1);
+  color: #9e3e3e;
 }
 
 .limb-advanced {

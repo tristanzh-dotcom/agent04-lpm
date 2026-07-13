@@ -137,8 +137,9 @@
   }
 
   function setEditMode(enabled) {
-    editForm.hidden = !enabled;
-    editToggle.classList.toggle("is-active", enabled);
+    if (!editForm) return;
+    editForm.hidden = editToggle ? !enabled : false;
+    editToggle?.classList.toggle("is-active", enabled);
   }
 
   function escapeHtml(value) {
@@ -940,6 +941,11 @@
   });
 
   editCancel?.addEventListener("click", () => {
+    if (!editToggle && currentItem) {
+      editForm.elements.description.value = currentItem.description || "";
+      editForm.elements.tags.value = currentItem.tags.join("，");
+      return;
+    }
     setEditMode(false);
   });
 

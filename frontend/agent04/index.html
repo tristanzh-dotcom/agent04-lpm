@@ -110,18 +110,13 @@
               <h3>标签</h3>
               <div class="limb-inspector-tags" data-inspector-tags=""></div>
             </div>
-            <div class="limb-inspector-actions">
-              <button type="button" data-edit-toggle="">修改描述</button>
-              <button class="is-danger" type="button" data-delete-button="">从检索库移除</button>
-            </div>
-
-            <form class="limb-edit-form" data-edit-form="" hidden="">
+            <form class="limb-edit-form" data-edit-form="">
               <label>
                 修改描述
                 <textarea name="description" rows="4"></textarea>
               </label>
               <label>
-                标签，使用逗号分隔
+                标签(使用逗号分隔)
                 <input name="tags" type="text">
               </label>
               <div class="limb-inspector-actions">
@@ -129,6 +124,9 @@
                 <button type="button" data-edit-cancel="">取消</button>
               </div>
             </form>
+            <div class="limb-inspector-actions">
+              <button class="is-danger" type="button" data-delete-button="">从检索库移除</button>
+            </div>
           </details>
 
           <div class="limb-path-buffer" aria-hidden="true">
