@@ -542,6 +542,7 @@
   window.limbAgent04RunSearch = runSearchFromShell;
 
   window.addEventListener("message", (event) => {
+    if (event.origin !== window.location.origin || event.source !== window.parent) return;
     if (event.data?.type === "agent04:switch-tab") {
       switchPanel(event.data.target);
     }
