@@ -425,6 +425,7 @@
 
   function openLightbox(item) {
     currentItem = item;
+    writePersistedResultState({ selectedPhotoId: item.md5, results: allResults });
     const token = ++lightboxLoadToken;
     const previewUrl = imagePreviewUrl(item);
     const originalUrl = item.url || previewUrl;
@@ -502,6 +503,7 @@
     hideSimilarStrip();
     currentItem = null;
     currentLightboxIndex = -1;
+    writePersistedResultState({ selectedPhotoId: null });
   }
 
   function replaceResult(updated) {
@@ -535,6 +537,8 @@
       form.elements.query.value = state.query;
     }
     renderResults();
+    const selectedIndex = allResults.findIndex((item) => item.md5 === state.selectedPhotoId);
+    if (selectedIndex >= 0) showLightboxAt(selectedIndex);
     return true;
   }
 

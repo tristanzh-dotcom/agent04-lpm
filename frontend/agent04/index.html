@@ -5,19 +5,14 @@
     <meta name="agent04-api-base" content="http://127.0.0.1:8004">
     <script>
       try {
-        const parentTheme = window.parent?.document?.documentElement?.dataset?.webTheme;
-        const queryTheme = new URLSearchParams(window.location.search).get("webTheme");
-        const activeTheme = queryTheme || parentTheme || "";
-        if (activeTheme) document.documentElement.dataset.webTheme = activeTheme;
-      } catch {
-        const queryTheme = new URLSearchParams(window.location.search).get("webTheme");
-        if (queryTheme) document.documentElement.dataset.webTheme = queryTheme;
-      }
+        const theme = window.parent?.document?.documentElement?.dataset?.webTheme;
+        if (["jlr", "light-tech"].includes(theme)) document.documentElement.dataset.webTheme = theme;
+      } catch { /* Standalone rendering retains its local theme. */ }
     </script>
     <link rel="stylesheet" href="/agent04-static/styles.css?v=20260529-light-tech-shell">
   </head>
   <body>
-    <main id="limb-workbench" class="limb-canvas" data-limb-app="">
+    <main data-web-state-scroll="workbench" id="limb-workbench" class="limb-canvas" data-limb-app="">
       <section class="limb-search-panel" data-panel="search">
         <section class="limb-status" data-status hidden>等待输入搜索描述</section>
         <section class="limb-masonry" data-results="" aria-live="polite"></section>
@@ -32,7 +27,7 @@
               <button type="button" data-face-reindex="">补扫相册人脸索引</button>
             </div>
           </div>
-          <div class="limb-profile-list" data-profile-list=""></div>
+          <div data-web-state-scroll="profiles" class="limb-profile-list" data-profile-list=""></div>
         </div>
 
         <section class="limb-register-form-card">
@@ -41,7 +36,7 @@
             <div class="limb-face-input-row">
               <label>
                 <span>人物昵称</span>
-                <input name="label" form="limb-face-form" type="text" autocomplete="off" maxlength="8" placeholder="例如：小菲" required="">
+                <input data-web-state-field name="label" form="limb-face-form" type="text" autocomplete="off" maxlength="8" placeholder="例如：小菲" required="">
               </label>
               <button type="button" data-face-submit="">开始学习</button>
             </div>
@@ -82,7 +77,7 @@
             <div class="limb-similar-strip" data-similar-strip=""></div>
           </section>
         </div>
-        <aside class="limb-inspector">
+        <aside data-web-state-scroll="inspector" class="limb-inspector">
           <div class="limb-inspector-head">
             <strong class="limb-inspector-title">照片信息</strong>
             <div class="limb-inspector-quick-actions">
@@ -113,11 +108,11 @@
             <form class="limb-edit-form" data-edit-form="">
               <label>
                 修改描述
-                <textarea name="description" rows="4"></textarea>
+                <textarea data-web-state-field name="description" rows="4"></textarea>
               </label>
               <label>
                 标签(使用逗号分隔)
-                <input name="tags" type="text">
+                <input data-web-state-field name="tags" type="text">
               </label>
               <div class="limb-inspector-actions">
                 <button type="submit">保存修正</button>

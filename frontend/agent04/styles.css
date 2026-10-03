@@ -1597,3 +1597,29 @@ textarea::-webkit-scrollbar-thumb:hover {
     grid-template-columns: 1fr;
   }
 }
+
+/* Published UI inherits Web tokens; standalone rendering keeps local fallbacks. */
+html:has(#agent04-theme-bridge) {
+  --ink: var(--platform-color-foreground);
+  --muted: var(--platform-color-muted);
+  --paper: var(--platform-color-background);
+  --panel: var(--platform-color-surface);
+  --panel-solid: var(--platform-color-elevated);
+  --line: var(--platform-color-border);
+  --accent: var(--platform-color-primary);
+  --accent-dark: var(--platform-color-primary);
+  --danger: var(--platform-color-danger);
+  --shadow: var(--platform-shadow-panel);
+}
+html:has(#agent04-theme-bridge) body { font-family: var(--platform-font-sans); }
+html:has(#agent04-theme-bridge) :is(.limb-register-form-card, .limb-face-form, .limb-profile-board, .limb-profile-group, .limb-profile-list p, .limb-profile-card, .limb-confirm-dialog) {
+  border-color: var(--line);
+  border-radius: var(--platform-radius-ui);
+  background: var(--panel);
+  box-shadow: var(--shadow);
+}
+html:has(#agent04-theme-bridge) .limb-inspector { border-color: var(--line); background: var(--panel); }
+html:has(#agent04-theme-bridge) :is(input[type="text"], textarea, button) {
+  border-radius: var(--platform-radius-control);
+}
+html:has(#agent04-theme-bridge) :is(input[type="text"], textarea) { background: var(--panel); color: var(--ink); border-color: var(--line); }
